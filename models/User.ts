@@ -27,6 +27,10 @@ export interface IUser extends Document {
   role: UserRole;
   active: boolean;
 
+  // Password reset fields
+  resetPasswordToken?: string;
+  resetPasswordExpires?: Date;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -72,6 +76,23 @@ const UserSchema = new Schema<IUser>(
       type: String,
       trim: true,
       maxlength: 15,
+    },
+
+
+    // --------------------------------------------------------
+    // PASSWORD RESET
+    // --------------------------------------------------------
+
+    resetPasswordToken: {
+      type: String,
+      default: undefined,
+      select: false,
+    },
+
+    resetPasswordExpires: {
+      type: Date,
+      default: undefined,
+      select: false,
     },
 
 
