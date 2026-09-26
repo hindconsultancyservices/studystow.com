@@ -178,9 +178,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Never return password
-    const safeUser = user.toObject();
-
-    delete safeUser.password;
+    const { password: _password, ...safeUser } = user.toObject();
 
     return NextResponse.json(
       {
