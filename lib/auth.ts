@@ -5,13 +5,37 @@ import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string;
+      role: string;
+      name?: string | null;
+      email?: string | null;
+      image?: string | null;
+    };
+  }
+
+  interface User {
+    id: string;
+    role: string;
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string;
+    role?: string;
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
   },
 
   pages: {
-    signIn: "/login",
+    signIn: "/admin/login",
   },
 
   providers: [
@@ -50,11 +74,7 @@ export const authOptions: NextAuthOptions = {
             active: true,
           }).select("+password");
 
-          if (!user) {
-            return null;
-          }
-
-          if (!user.password) {
+          if (!user || !user.password) {
             return null;
           }
 
@@ -84,10 +104,8 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        const userWithRole = user as typeof user & { id?: string; role?: string };
-
-        token.id = userWithRole.id;
-        token.role = userWithRole.role;
+        token.id = user.id;
+        token.role = user.role;
       }
 
       return token;
@@ -95,13 +113,8 @@ export const authOptions: NextAuthOptions = {
 
     async session({ session, token }) {
       if (session.user) {
-        const sessionUser = session.user as typeof session.user & {
-          id: string;
-          role: string;
-        };
-
-        sessionUser.id = token.id as string;
-        sessionUser.role = token.role as string;
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
       }
 
       return session;
@@ -116,4 +129,3 @@ export const authOptions: NextAuthOptions = {
 const handler = NextAuth(authOptions);
 
 export { handler };
-export { handler as GET, handler as POST };

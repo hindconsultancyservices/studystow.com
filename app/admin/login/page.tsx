@@ -1,79 +1,109 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { signIn } from "next-auth/react";
 import Link from "next/link";
-import { Eye, EyeOff, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+  Loader2,
+} from "lucide-react";
 
 export default function AdminLoginPage() {
-  const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    // Backend / NextAuth baad me connect hoga.
-    setLoading(true);
+    setError("");
 
-    setTimeout(() => {
+    if (!email.trim() || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const result = await signIn("credentials", {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+        callbackUrl: "/admin",
+      });
+
+      if (result?.error) {
+        setError("Invalid email or password.");
+        return;
+      }
+
+      window.location.href = "/admin";
+    } catch (error) {
+      console.error("Admin login error:", error);
+      setError("Something went wrong. Please try again.");
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   }
 
   return (
     <main className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md">
-        {/* Logo / Brand */}
+        {/* Brand */}
         <div className="text-center mb-8">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-lg">
-            <ShieldCheck className="h-8 w-8 text-slate-950" />
-          </div>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center mb-5"
+          >
+            <img
+              src="/images/logo/logo.png"
+              alt="StudyStow"
+              className="h-14 w-auto object-contain"
+            />
+          </Link>
 
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            StudyStow
+          <h1 className="text-2xl font-bold text-white">
+            Admin Login
           </h1>
 
-          <p className="mt-1 text-sm text-slate-400">
-            Admin Panel
+          <p className="mt-2 text-sm text-slate-400">
+            Sign in to manage your StudyStow store
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="rounded-2xl border border-slate-800 bg-white p-6 shadow-2xl sm:p-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Admin Login
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Sign in to manage your StudyStow store.
-            </p>
-          </div>
-
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl sm:p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
             <div>
               <label
                 htmlFor="email"
-                className="mb-2 block text-sm font-medium text-slate-700"
+                className="mb-2 block text-sm font-medium text-slate-200"
               >
                 Email Address
               </label>
 
               <div className="relative">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
 
                 <input
                   id="email"
                   name="email"
                   type="email"
                   autoComplete="email"
-                  placeholder="admin@studystow.com"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  required
-                  className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                  placeholder="admin@studystow.com"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-slate-700 bg-slate-950 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
             </div>
@@ -83,45 +113,42 @@ export default function AdminLoginPage() {
               <div className="mb-2 flex items-center justify-between">
                 <label
                   htmlFor="password"
-                  className="block text-sm font-medium text-slate-700"
+                  className="block text-sm font-medium text-slate-200"
                 >
                   Password
                 </label>
 
-                <button
-                  type="button"
-                  className="text-xs font-medium text-slate-600 hover:text-slate-900"
+                <Link
+                  href="/admin/forgot-password"
+                  className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
                 >
                   Forgot password?
-                </button>
+                </Link>
               </div>
 
               <div className="relative">
-                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
 
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  placeholder="Enter your password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  required
-                  className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-11 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                  placeholder="Enter your password"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-slate-700 bg-slate-950 pl-11 pr-12 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                 />
 
                 <button
                   type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  disabled={loading}
                   aria-label={
-                    showPassword
-                      ? "Hide password"
-                      : "Show password"
+                    showPassword ? "Hide password" : "Show password"
                   }
-                  onClick={() =>
-                    setShowPassword((current) => !current)
-                  }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-300 disabled:cursor-not-allowed"
                 >
                   {showPassword ? (
                     <EyeOff className="h-5 w-5" />
@@ -132,38 +159,65 @@ export default function AdminLoginPage() {
               </div>
             </div>
 
+            {/* Error */}
+            {error && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              >
+                {error}
+              </div>
+            )}
+
             {/* Login Button */}
             <button
               type="submit"
               disabled={loading}
-              className="flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                "Sign in to Admin"
+              )}
             </button>
           </form>
 
           {/* Security Notice */}
-          <div className="mt-6 flex gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-slate-600" />
+          <div className="mt-6 flex gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+            <div className="mt-0.5 shrink-0">
+              <ShieldCheck className="h-5 w-5 text-emerald-400" />
+            </div>
 
-            <p className="text-xs leading-5 text-slate-500">
-              This area is restricted to authorized StudyStow
-              administrators.
-            </p>
-          </div>
+            <div>
+              <p className="text-sm font-medium text-slate-200">
+                Secure Admin Area
+              </p>
 
-          {/* Back to Store */}
-          <div className="mt-6 text-center">
-            <Link
-              href="/"
-              className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-            >
-              ← Back to Store
-            </Link>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                This area is restricted to authorized StudyStow
+                administrators.
+              </p>
+            </div>
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
+        {/* Back to Store */}
+        <div className="mt-6 text-center">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-sm text-slate-500 transition hover:text-slate-300"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Store
+          </Link>
+        </div>
+
+        {/* Footer */}
+        <p className="mt-8 text-center text-xs text-slate-600">
           © {new Date().getFullYear()} StudyStow. All rights reserved.
         </p>
       </div>
