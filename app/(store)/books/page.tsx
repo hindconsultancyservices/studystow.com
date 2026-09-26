@@ -1,9 +1,16 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-type IconProps = { className?: string };
+import WishlistButton from "./components/wishlist-button";
 
-function Icon({ className, children }: IconProps & { children: ReactNode }) {
+type IconProps = {
+  className?: string;
+};
+
+function Icon({
+  className,
+  children,
+}: IconProps & { children: ReactNode }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -26,12 +33,39 @@ const BookOpen = (props: IconProps) => (
     <path d="M22 4.5A2.5 2.5 0 0 0 19.5 2H13v19h6.5A2.5 2.5 0 0 1 22 23z" />
   </Icon>
 );
-const ChevronRight = (props: IconProps) => <Icon {...props}><path d="m9 18 6-6-6-6" /></Icon>;
-const Filter = (props: IconProps) => <Icon {...props}><path d="M4 6h16M7 12h10m-7 6h4" /></Icon>;
-const Heart = (props: IconProps) => <Icon {...props}><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></Icon>;
-const Search = (props: IconProps) => <Icon {...props}><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></Icon>;
-const ShoppingCart = (props: IconProps) => <Icon {...props}><circle cx="9" cy="20" r="1" /><circle cx="18" cy="20" r="1" /><path d="M3 4h2l2.7 11.2a2 2 0 0 0 2 1.5h7.7a2 2 0 0 0 1.9-1.4L21 8H6" /></Icon>;
-const Star = (props: IconProps) => <Icon {...props}><polygon points="12 2 15.1 8.3 22 9.3 17 14.2 18.2 21 12 17.8 5.8 21 7 14.2 2 9.3 8.9 8.3 12 2" /></Icon>;
+
+const ChevronRight = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m9 18 6-6-6-6" />
+  </Icon>
+);
+
+const Filter = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 6h16M7 12h10m-7 6h4" />
+  </Icon>
+);
+
+const Search = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m20 20-4-4" />
+  </Icon>
+);
+
+const ShoppingCart = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="9" cy="20" r="1" />
+    <circle cx="18" cy="20" r="1" />
+    <path d="M3 4h2l2.7 11.2a2 2 0 0 0 2 1.5h7.7a2 2 0 0 0 1.9-1.4L21 8H6" />
+  </Icon>
+);
+
+const Star = (props: IconProps) => (
+  <Icon {...props}>
+    <polygon points="12 2 15.1 8.3 22 9.3 17 14.2 18.2 21 12 17.8 5.8 21 7 14.2 2 9.3 8.9 8.3 12 2" />
+  </Icon>
+);
 
 const books = [
   {
@@ -143,7 +177,9 @@ const categories = [
 ];
 
 function getDiscount(price: number, originalPrice: number) {
-  return Math.round(((originalPrice - price) / originalPrice) * 100);
+  return Math.round(
+    ((originalPrice - price) / originalPrice) * 100
+  );
 }
 
 export default function BooksPage() {
@@ -203,6 +239,7 @@ export default function BooksPage() {
             <div className="sticky top-6 rounded-2xl border bg-white p-5 shadow-sm">
               <div className="mb-5 flex items-center gap-2">
                 <Filter className="h-5 w-5 text-slate-700" />
+
                 <h2 className="font-semibold text-slate-900">
                   Categories
                 </h2>
@@ -246,9 +283,15 @@ export default function BooksPage() {
                   className="h-11 rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none focus:border-slate-400"
                 >
                   <option value="featured">Featured</option>
-                  <option value="price-low">Price: Low to High</option>
-                  <option value="price-high">Price: High to Low</option>
-                  <option value="rating">Highest Rated</option>
+                  <option value="price-low">
+                    Price: Low to High
+                  </option>
+                  <option value="price-high">
+                    Price: High to Low
+                  </option>
+                  <option value="rating">
+                    Highest Rated
+                  </option>
                   <option value="newest">Newest</option>
                 </select>
               </div>
@@ -296,14 +339,10 @@ export default function BooksPage() {
                           {discount}% OFF
                         </span>
 
-                        <button
-                          type="button"
-                          aria-label={`Add ${book.title} to wishlist`}
-                          onClick={(event) => event.preventDefault()}
-                          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-md transition hover:bg-slate-50"
-                        >
-                          <Heart className="h-4 w-4 text-slate-600" />
-                        </button>
+                        <WishlistButton
+                          bookId={book.id}
+                          bookTitle={book.title}
+                        />
                       </div>
                     </Link>
 
