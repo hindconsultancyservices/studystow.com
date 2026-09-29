@@ -65,7 +65,29 @@ export default function AdminBooksPage() {
           throw new Error(data?.error || "Failed to load books.");
         }
 
-        setBooks(Array.isArray(data) ? data : data.books || []);
+        setBooks(
+  Array.isArray(data?.data)
+    ? data.data.map((book: any) => ({
+        _id: book._id,
+        id: book.sku,
+        title: book.title,
+        author: book.author,
+        category:
+          typeof book.category === "object"
+            ? book.category?.name || "Uncategorized"
+            : book.category || "Uncategorized",
+        price: Number(book.price || 0),
+        stock: Number(book.stock || 0),
+        status:
+          Number(book.stock || 0) === 0
+            ? "Out of Stock"
+            : book.published
+              ? "Published"
+              : "Draft",
+        image: book.image || "",
+      }))
+    : []
+);
       } catch (err) {
         console.error("Admin books fetch error:", err);
         setError(

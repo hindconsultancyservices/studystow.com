@@ -2,12 +2,15 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import {
   ArrowLeft,
   CheckCircle2,
   CreditCard,
   MapPin,
   ShieldCheck,
+  Tag,
+  X,
 } from "lucide-react";
 
 type PaymentMethod = "online" | "cod";
@@ -21,6 +24,13 @@ type Address = {
   state: string;
   pincode: string;
   phone: string;
+};
+
+type CouponResult = {
+  code: string;
+  type: "percentage" | "fixed";
+  value: number;
+  discount: number;
 };
 
 const initialAddresses: Address[] = [
@@ -37,6 +47,54 @@ const initialAddresses: Address[] = [
 ];
 
 export default function CheckoutForm() {
+  const { data: session } = useSession();
+
+  const customerId =
+    (session?.user as { id?: string; _id?: string; customerId?: string } | undefined)?.id ||
+    (session?.user as { id?: string; _id?: string; customerId?: string } | undefined)?._id ||
+    (session?.user as { id?: string; _id?: string; customerId?: string } | undefined)?.customerId ||
+    "";
+
+  /*
+   * Demo cart data.
+   * Later this should come from your real cart API/context.
+   */
+  const cartItems = [
+    {
+      book: "BK001",
+      title: "Atomic Habits",
+      slug: "atomic-habits",
+      price: 499,
+      quantity: 1,
+      image: "",
+    },
+    {
+      book: "BK002",
+      title: "The Psychology of Money",
+      slug: "the-psychology-of-money",
+      price: 399,
+      quantity: 2,
+      image: "",
+    },
+    {
+      book: "BK004",
+      title: "Ikigai",
+      slug: "ikigai",
+      price: 299,
+      quantity: 1,
+      image: "",
+    },
+  ];
+
+  const subtotal = cartItems.reduce(
+    (total, item) =>
+      total + item.price * item.quantity,
+    0
+  );
+
+  const shipping = subtotal >= 999 ? 0 : 49;
+  const tax = 0;
+
   const [addresses, setAddresses] =
     useState<Address[]>(initialAddresses);
 
@@ -71,6 +129,18 @@ export default function CheckoutForm() {
       phone: "",
     });
 
+  const [couponCode, setCouponCode] =
+    useState("");
+
+  const [appliedCoupon, setAppliedCoupon] =
+    useState<CouponResult | null>(null);
+
+  const [couponLoading, setCouponLoading] =
+    useState(false);
+
+  const [couponError, setCouponError] =
+    useState("");
+
   const [error, setError] =
     useState("");
 
@@ -80,11 +150,25 @@ export default function CheckoutForm() {
   const [orderPlaced, setOrderPlaced] =
     useState(false);
 
+  const [orderNumber, setOrderNumber] =
+    useState("");
+
   const selectedAddress =
     addresses.find(
       (address) =>
         address.id === selectedAddressId
     ) ?? addresses[0];
+
+  /*
+   * Current coupon discount.
+   */
+  const discount =
+    appliedCoupon?.discount ?? 0;
+
+  const total = Math.max(
+    subtotal + shipping + tax - discount,
+    0
+  );
 
   function handleSelectAddress(id: string) {
     setSelectedAddressId(id);
@@ -113,7 +197,9 @@ export default function CheckoutForm() {
       !newAddress.pincode.trim() ||
       !newAddress.phone.trim()
     ) {
-      setError("Please fill all address fields.");
+      setError(
+        "Please fill all address fields."
+      );
       return;
     }
 
@@ -151,6 +237,93 @@ export default function CheckoutForm() {
 
     setShowAddressForm(false);
     setShowAddresses(false);
+  }
+
+  /*
+   * Apply coupon.
+   */
+  async function handleApplyCoupon() {
+    setCouponError("");
+
+    const code = couponCode.trim();
+
+    if (!code) {
+      setCouponError(
+        "Please enter a coupon code."
+      );
+      return;
+    }
+
+    try {
+      setCouponLoading(true);
+
+      const response = await fetch(
+        "/api/coupons/apply",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            code,
+            subtotal,
+          }),
+        }
+      );
+
+      const text = await response.text();
+
+      let result: any = {};
+
+      try {
+        result = text
+          ? JSON.parse(text)
+          : {};
+      } catch {
+        throw new Error(
+          "Invalid server response."
+        );
+      }
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Unable to apply coupon."
+        );
+      }
+
+      setAppliedCoupon({
+        code:
+          result.data?.code ||
+          code.toUpperCase(),
+        type:
+          result.data?.type ||
+          "percentage",
+        value:
+          Number(result.data?.value || 0),
+        discount:
+          Number(
+            result.data?.discount || 0
+          ),
+      });
+
+      setCouponCode("");
+    } catch (err: any) {
+      setAppliedCoupon(null);
+
+      setCouponError(
+        err?.message ||
+          "Unable to apply coupon."
+      );
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCouponError("");
+    setCouponCode("");
   }
 
   function validateCheckout() {
@@ -200,25 +373,159 @@ export default function CheckoutForm() {
       return;
     }
 
-    setIsPlacingOrder(true);
+    if (!selectedAddress) {
+      setError(
+        "Please select a delivery address."
+      );
+      return;
+    }
 
-    /*
-      Actual order API / Razorpay integration
-      will be connected here later.
-    */
+    try {
+      setIsPlacingOrder(true);
 
-    await new Promise((resolve) =>
-      setTimeout(resolve, 800)
-    );
+      const response = await fetch(
+        "/api/orders",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            /*
+             * Replace this with actual logged-in
+             * customer ID from session.
+             */
+            customer: customerId,
 
-    setIsPlacingOrder(false);
-    setOrderPlaced(true);
+            items: cartItems.map((item) => ({
+              book: item.book,
+              title: item.title,
+              slug: item.slug,
+              quantity: item.quantity,
+              price: item.price,
+              image: item.image,
+            })),
+
+            shippingAddress: {
+              fullName:
+                selectedAddress.name ||
+                fullName,
+
+              phone:
+                selectedAddress.phone ||
+                phone,
+
+              addressLine1:
+                selectedAddress.address,
+
+              addressLine2: "",
+
+              city:
+                selectedAddress.city,
+
+              state:
+                selectedAddress.state,
+
+              postalCode:
+                selectedAddress.pincode,
+
+              country: "India",
+            },
+
+            subtotal,
+
+            shipping,
+
+            discount,
+
+            tax,
+
+            total,
+
+            couponCode:
+              appliedCoupon?.code || "",
+
+            paymentMethod:
+              paymentMethod === "online"
+                ? "razorpay"
+                : "cod",
+
+            paymentStatus:
+              paymentMethod === "cod"
+                ? "pending"
+                : "pending",
+
+            orderStatus:
+              paymentMethod === "cod"
+                ? "pending"
+                : "pending",
+
+            notes: "",
+          }),
+        }
+      );
+
+      const text = await response.text();
+
+      let result: any = {};
+
+      try {
+        result = text
+          ? JSON.parse(text)
+          : {};
+      } catch {
+        throw new Error(
+          "Invalid server response."
+        );
+      }
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Failed to place order."
+        );
+      }
+
+      setOrderNumber(
+        result.data?.orderNumber || ""
+      );
+
+      /*
+       * COD order is completed.
+       *
+       * Razorpay should NOT show success here.
+       * Razorpay verification should be connected
+       * separately before marking online payment paid.
+       */
+      if (paymentMethod === "cod") {
+        setOrderPlaced(true);
+      } else {
+        /*
+         * Temporary:
+         * Razorpay integration should be started here.
+         */
+        setError(
+          "Order created. Razorpay payment integration is required before completing online payment."
+        );
+      }
+    } catch (err: any) {
+      console.error(
+        "Place order error:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Failed to place order."
+      );
+    } finally {
+      setIsPlacingOrder(false);
+    }
   }
 
   if (orderPlaced) {
     return (
       <div className="space-y-6">
-        {/* Success */}
         <div className="rounded-2xl border bg-white p-8 text-center shadow-sm">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-50">
             <CheckCircle2 className="h-8 w-8 text-green-600" />
@@ -228,10 +535,17 @@ export default function CheckoutForm() {
             Order Placed Successfully
           </h2>
 
+          {orderNumber && (
+            <p className="mt-2 text-sm font-semibold text-slate-700">
+              Order #{orderNumber}
+            </p>
+          )}
+
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-            Your order has been received successfully.
-            We&apos;ll send the order updates to your
-            email and phone number.
+            Your order has been received
+            successfully. We&apos;ll send the
+            order updates to your email and
+            phone number.
           </p>
 
           <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
@@ -270,7 +584,8 @@ export default function CheckoutForm() {
               </h2>
 
               <p className="text-xs text-slate-500">
-                Where should we deliver your order?
+                Where should we deliver your
+                order?
               </p>
             </div>
           </div>
@@ -284,12 +599,13 @@ export default function CheckoutForm() {
             }
             className="text-sm font-semibold text-blue-600 hover:text-blue-700"
           >
-            {showAddresses ? "Close" : "Change"}
+            {showAddresses
+              ? "Close"
+              : "Change"}
           </button>
         </div>
 
         <div className="p-5 sm:p-6">
-          {/* Address List */}
           {showAddresses && (
             <div className="mb-4 space-y-3">
               {addresses.map((address) => {
@@ -355,7 +671,6 @@ export default function CheckoutForm() {
             </div>
           )}
 
-          {/* Selected Address */}
           {selectedAddress && (
             <div className="rounded-xl border-2 border-slate-900 bg-slate-50 p-4">
               <div className="flex items-start gap-3">
@@ -390,7 +705,6 @@ export default function CheckoutForm() {
             </div>
           )}
 
-          {/* Add Address */}
           <button
             type="button"
             onClick={() =>
@@ -405,7 +719,6 @@ export default function CheckoutForm() {
               : "+ Add New Address"}
           </button>
 
-          {/* New Address Form */}
           {showAddressForm && (
             <div className="mt-5 rounded-xl border bg-slate-50 p-4">
               <h3 className="font-semibold text-slate-900">
@@ -413,129 +726,82 @@ export default function CheckoutForm() {
               </h3>
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Full Name
-                  </label>
+                {(
+                  [
+                    ["name", "Full Name"],
+                    ["phone", "Phone"],
+                    ["address", "Address"],
+                    ["city", "City"],
+                    ["state", "State"],
+                    ["pincode", "Pincode"],
+                  ] as const
+                ).map(
+                  ([field, label]) => (
+                    <div
+                      key={field}
+                      className={
+                        field ===
+                        "address"
+                          ? "sm:col-span-2"
+                          : ""
+                      }
+                    >
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        {label}
+                      </label>
 
-                  <input
-                    type="text"
-                    value={newAddress.name}
-                    onChange={(event) =>
-                      handleNewAddressChange(
-                        "name",
-                        event.target.value
-                      )
-                    }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="Enter name"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Phone
-                  </label>
-
-                  <input
-                    type="tel"
-                    value={newAddress.phone}
-                    onChange={(event) =>
-                      handleNewAddressChange(
-                        "phone",
-                        event.target.value
-                      )
-                    }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="+91"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Address
-                  </label>
-
-                  <input
-                    type="text"
-                    value={newAddress.address}
-                    onChange={(event) =>
-                      handleNewAddressChange(
-                        "address",
-                        event.target.value
-                      )
-                    }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="House No., Street, Area"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    City
-                  </label>
-
-                  <input
-                    type="text"
-                    value={newAddress.city}
-                    onChange={(event) =>
-                      handleNewAddressChange(
-                        "city",
-                        event.target.value
-                      )
-                    }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="City"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    State
-                  </label>
-
-                  <input
-                    type="text"
-                    value={newAddress.state}
-                    onChange={(event) =>
-                      handleNewAddressChange(
-                        "state",
-                        event.target.value
-                      )
-                    }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="State"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Pincode
-                  </label>
-
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={newAddress.pincode}
-                    onChange={(event) =>
-                      handleNewAddressChange(
-                        "pincode",
-                        event.target.value.replace(
-                          /\D/g,
-                          ""
-                        )
-                      )
-                    }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="826001"
-                  />
-                </div>
+                      <input
+                        type={
+                          field === "phone"
+                            ? "tel"
+                            : "text"
+                        }
+                        inputMode={
+                          field === "pincode"
+                            ? "numeric"
+                            : undefined
+                        }
+                        maxLength={
+                          field === "pincode"
+                            ? 6
+                            : undefined
+                        }
+                        value={
+                          newAddress[
+                            field
+                          ]
+                        }
+                        onChange={(event) =>
+                          handleNewAddressChange(
+                            field,
+                            field ===
+                              "pincode"
+                              ? event.target.value.replace(
+                                  /\D/g,
+                                  ""
+                                )
+                              : event.target
+                                  .value
+                          )
+                        }
+                        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                        placeholder={
+                          field ===
+                          "pincode"
+                            ? "826001"
+                            : `Enter ${label.toLowerCase()}`
+                        }
+                      />
+                    </div>
+                  )
+                )}
               </div>
 
               <button
                 type="button"
-                onClick={handleAddAddress}
+                onClick={
+                  handleAddAddress
+                }
                 className="mt-5 h-11 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
               >
                 Save Address
@@ -545,12 +811,12 @@ export default function CheckoutForm() {
         </div>
       </div>
 
-      {/* Main Checkout Form */}
+      {/* Contact Information */}
       <form
+        id="checkout-form"
         onSubmit={handlePlaceOrder}
         className="space-y-6"
       >
-        {/* Contact Information */}
         <div className="rounded-2xl border bg-white shadow-sm">
           <div className="border-b px-5 py-4 sm:px-6">
             <h2 className="font-semibold text-slate-900">
@@ -558,8 +824,8 @@ export default function CheckoutForm() {
             </h2>
 
             <p className="mt-1 text-xs text-slate-500">
-              We&apos;ll use this information for order
-              updates.
+              We&apos;ll use this information
+              for order updates.
             </p>
           </div>
 
@@ -577,7 +843,9 @@ export default function CheckoutForm() {
                 type="text"
                 value={fullName}
                 onChange={(event) =>
-                  setFullName(event.target.value)
+                  setFullName(
+                    event.target.value
+                  )
                 }
                 className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
               />
@@ -596,7 +864,9 @@ export default function CheckoutForm() {
                 type="tel"
                 value={phone}
                 onChange={(event) =>
-                  setPhone(event.target.value)
+                  setPhone(
+                    event.target.value
+                  )
                 }
                 className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
               />
@@ -615,11 +885,94 @@ export default function CheckoutForm() {
                 type="email"
                 value={email}
                 onChange={(event) =>
-                  setEmail(event.target.value)
+                  setEmail(
+                    event.target.value
+                  )
                 }
                 className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
               />
             </div>
+          </div>
+        </div>
+
+        {/* Coupon */}
+        <div className="rounded-2xl border bg-white shadow-sm">
+          <div className="border-b px-5 py-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+                <Tag className="h-4 w-4 text-slate-700" />
+              </div>
+
+              <div>
+                <h2 className="font-semibold text-slate-900">
+                  Coupon Code
+                </h2>
+
+                <p className="text-xs text-slate-500">
+                  Apply a valid coupon to get
+                  discount.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 sm:p-6">
+            {appliedCoupon ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
+                <div>
+                  <p className="text-sm font-bold text-green-700">
+                    {appliedCoupon.code}
+                  </p>
+
+                  <p className="mt-1 text-xs text-green-600">
+                    Discount applied:
+                    {" "}
+                    ₹{discount}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={removeCoupon}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 hover:text-red-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={(event) =>
+                    setCouponCode(
+                      event.target.value.toUpperCase()
+                    )
+                  }
+                  placeholder="Enter coupon code"
+                  className="h-11 flex-1 rounded-xl border border-slate-200 px-4 text-sm font-semibold uppercase outline-none focus:border-slate-400"
+                />
+
+                <button
+                  type="button"
+                  onClick={
+                    handleApplyCoupon
+                  }
+                  disabled={couponLoading}
+                  className="h-11 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {couponLoading
+                    ? "Applying..."
+                    : "Apply"}
+                </button>
+              </div>
+            )}
+
+            {couponError && (
+              <p className="mt-3 text-sm font-medium text-red-600">
+                {couponError}
+              </p>
+            )}
           </div>
         </div>
 
@@ -637,7 +990,8 @@ export default function CheckoutForm() {
                 </h2>
 
                 <p className="text-xs text-slate-500">
-                  Choose your preferred payment method.
+                  Choose your preferred payment
+                  method.
                 </p>
               </div>
             </div>
@@ -647,7 +1001,8 @@ export default function CheckoutForm() {
             {/* Online */}
             <label
               className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition ${
-                paymentMethod === "online"
+                paymentMethod ===
+                "online"
                   ? "border-slate-900 bg-slate-50"
                   : "border-slate-200 bg-white hover:bg-slate-50"
               }`}
@@ -657,38 +1012,38 @@ export default function CheckoutForm() {
                 name="payment"
                 value="online"
                 checked={
-                  paymentMethod === "online"
+                  paymentMethod ===
+                  "online"
                 }
                 onChange={() =>
-                  setPaymentMethod("online")
+                  setPaymentMethod(
+                    "online"
+                  )
                 }
                 className="mt-1 h-4 w-4 accent-slate-900"
               />
 
               <div className="flex-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      Online Payment
-                    </p>
+                <p className="font-semibold text-slate-900">
+                  Online Payment
+                </p>
 
-                    <p className="mt-1 text-xs text-slate-500">
-                      UPI, Cards, Net Banking &amp;
-                      Wallets
-                    </p>
-                  </div>
-
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-slate-600">
-                    Secure
-                  </span>
-                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  UPI, Cards, Net Banking
+                  &amp; Wallets
+                </p>
               </div>
+
+              <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                Secure
+              </span>
             </label>
 
             {/* COD */}
             <label
               className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition ${
-                paymentMethod === "cod"
+                paymentMethod ===
+                "cod"
                   ? "border-slate-900 bg-slate-50"
                   : "border-slate-200 bg-white hover:bg-slate-50"
               }`}
@@ -698,10 +1053,13 @@ export default function CheckoutForm() {
                 name="payment"
                 value="cod"
                 checked={
-                  paymentMethod === "cod"
+                  paymentMethod ===
+                  "cod"
                 }
                 onChange={() =>
-                  setPaymentMethod("cod")
+                  setPaymentMethod(
+                    "cod"
+                  )
                 }
                 className="mt-1 h-4 w-4 accent-slate-900"
               />
@@ -712,7 +1070,8 @@ export default function CheckoutForm() {
                 </p>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Pay when your order is delivered.
+                  Pay when your order is
+                  delivered.
                 </p>
               </div>
             </label>
@@ -726,22 +1085,23 @@ export default function CheckoutForm() {
           </div>
         )}
 
-        {/* Mobile Place Order */}
+        {/* Mobile */}
         <div className="lg:hidden">
           <button
             type="submit"
-            disabled={isPlacingOrder}
+            disabled={
+              isPlacingOrder
+            }
             className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <ShieldCheck className="h-4 w-4" />
 
             {isPlacingOrder
               ? "Placing Order..."
-              : "Place Order"}
+              : `Place Order • ₹${total}`}
           </button>
         </div>
 
-        {/* Back */}
         <Link
           href="/cart"
           className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-slate-900"
@@ -753,29 +1113,3 @@ export default function CheckoutForm() {
     </div>
   );
 }
-
-/*
-  Place Order button used by checkout/page.tsx
-
-  NOTE:
-  The main checkout form contains the actual submit logic.
-  This component is kept separately so the right-side
-  Order Summary can trigger the same form.
-*/
-
-CheckoutForm.PlaceOrder = function PlaceOrder({
-  total,
-}: {
-  total: number;
-}) {
-  return (
-    <button
-      type="submit"
-      form="checkout-form"
-      className="hidden"
-      aria-hidden="true"
-    >
-      Place Order ₹{total}
-    </button>
-  );
-};

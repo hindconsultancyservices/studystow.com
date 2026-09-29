@@ -395,14 +395,35 @@ export default function EditBookPage() {
         }
       );
 
-      const result: ApiResponse<Book> =
-        await response.json();
+      const rawResponse = await response.text();
 
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.message || "Failed to update book"
-        );
-      }
+      let result: ApiResponse<Book>;
+
+      try {
+        result = rawResponse
+          ? JSON.parse(rawResponse)
+          : {
+              success: false,
+              message: `Server returned an empty response (HTTP ${response.status}).`,
+            };
+        } catch (parseError) {
+          console.error("Invalid update API response:", {
+            status: response.status,
+            statusText: response.statusText,
+            body: rawResponse,
+            parseError,
+          });
+
+           throw new Error(
+            `Server returned an invalid response (HTTP ${response.status}).`
+            );
+        }
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+             result.message || "Failed to update book"
+          );
+        }
 
       setSuccess("Book updated successfully.");
 

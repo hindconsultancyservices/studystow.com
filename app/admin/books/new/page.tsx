@@ -1,17 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+
+type Category = {
+  _id: string;
+  name: string;
+  slug: string;
+};
 
 type BookForm = {
   id: string;
   title: string;
+  slug: string;
   author: string;
   category: string;
   price: string;
   originalPrice: string;
   stock: string;
   status: "Published" | "Draft";
+  featured: boolean;
   description: string;
   isbn: string;
   publisher: string;
@@ -23,12 +31,14 @@ type BookForm = {
 const initialForm: BookForm = {
   id: "",
   title: "",
+  slug: "",
   author: "",
   category: "",
   price: "",
   originalPrice: "",
   stock: "",
   status: "Draft",
+  featured: false,
   description: "",
   isbn: "",
   publisher: "",
@@ -37,20 +47,97 @@ const initialForm: BookForm = {
   image: "",
 };
 
-const categories = [
-  "Self Help",
-  "Finance",
-  "Productivity",
-  "Fiction",
-  "Business",
-  "Spirituality",
-];
+function createSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 export default function NewBookPage() {
-  const [form, setForm] = useState<BookForm>(initialForm);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [form, setForm] =
+    useState<BookForm>(initialForm);
+
+  const [categories, setCategories] =
+    useState<Category[]>([]);
+
+  const [loadingCategories, setLoadingCategories] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
+
+  /*
+   * Load real categories from MongoDB.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCategories() {
+      try {
+        setLoadingCategories(true);
+        setError("");
+
+        const response = await fetch(
+          "/api/categories?active=true",
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              "Failed to load categories."
+          );
+        }
+
+        if (!cancelled) {
+          setCategories(
+            Array.isArray(data?.data)
+              ? data.data
+              : []
+          );
+        }
+      } catch (err) {
+        console.error(
+          "Load categories error:",
+          err
+        );
+
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load categories."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCategories(false);
+        }
+      }
+    }
+
+    loadCategories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateField<K extends keyof BookForm>(
     field: K,
@@ -62,21 +149,64 @@ export default function NewBookPage() {
     }));
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  /*
+   * Keep slug automatically synced with title
+   * until the admin manually changes the slug.
+   */
+  function handleTitleChange(value: string) {
+    setForm((current) => ({
+      ...current,
+      title: value,
+      slug:
+        current.slug &&
+        current.slug !== createSlug(current.title)
+          ? current.slug
+          : createSlug(value),
+    }));
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     setError("");
     setSuccess("");
 
-    const id = form.id.trim().toUpperCase();
-    const title = form.title.trim();
-    const author = form.author.trim();
-    const category = form.category.trim();
-    const price = Number(form.price);
-    const originalPrice = form.originalPrice
-      ? Number(form.originalPrice)
-      : undefined;
-    const stock = Number(form.stock);
+    const id =
+      form.id.trim().toUpperCase();
+
+    const title =
+      form.title.trim();
+
+    const slug =
+      form.slug.trim().toLowerCase();
+
+    const author =
+      form.author.trim();
+
+    const category =
+      form.category.trim();
+
+    const price =
+      Number(form.price);
+
+    const originalPrice =
+      form.originalPrice
+        ? Number(form.originalPrice)
+        : undefined;
+
+    const stock =
+      Number(form.stock);
+
+    const pages =
+      form.pages
+        ? Number(form.pages)
+        : undefined;
+
+    /*
+     * Basic validation
+     */
 
     if (!id) {
       setError("Book ID is required.");
@@ -84,12 +214,30 @@ export default function NewBookPage() {
     }
 
     if (!/^BK[0-9]+$/i.test(id)) {
-      setError("Book ID must be in format like BK001, BK002, etc.");
+      setError(
+        "Book ID must be in format like BK001, BK002, etc."
+      );
       return;
     }
 
     if (!title) {
       setError("Book title is required.");
+      return;
+    }
+
+    if (!slug) {
+      setError("Book slug is required.");
+      return;
+    }
+
+    if (
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(
+        slug
+      )
+    ) {
+      setError(
+        "Slug must contain only lowercase letters, numbers and hyphens."
+      );
       return;
     }
 
@@ -99,20 +247,32 @@ export default function NewBookPage() {
     }
 
     if (!category) {
-      setError("Please select a category.");
+      setError(
+        "Please select a category."
+      );
       return;
     }
 
-    if (!Number.isFinite(price) || price <= 0) {
-      setError("Please enter a valid selling price.");
+    if (
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
+      setError(
+        "Please enter a valid selling price."
+      );
       return;
     }
 
     if (
       originalPrice !== undefined &&
-      (!Number.isFinite(originalPrice) || originalPrice <= 0)
+      (
+        !Number.isFinite(originalPrice) ||
+        originalPrice < 0
+      )
     ) {
-      setError("Please enter a valid original price.");
+      setError(
+        "Please enter a valid original price."
+      );
       return;
     }
 
@@ -126,63 +286,198 @@ export default function NewBookPage() {
       return;
     }
 
-    if (!Number.isInteger(stock) || stock < 0) {
-      setError("Stock must be a whole number and cannot be negative.");
+    if (
+      !Number.isInteger(stock) ||
+      stock < 0
+    ) {
+      setError(
+        "Stock must be a whole number and cannot be negative."
+      );
       return;
     }
+
+    if (
+      pages !== undefined &&
+      (
+        !Number.isInteger(pages) ||
+        pages < 1
+      )
+    ) {
+      setError(
+        "Pages must be a positive whole number."
+      );
+      return;
+    }
+
+    if (
+      loadingCategories
+    ) {
+      setError(
+        "Please wait until categories are loaded."
+      );
+      return;
+    }
+
+    if (
+      categories.length === 0
+    ) {
+      setError(
+        "No active category is available. Please create a category first."
+      );
+      return;
+    }
+
+    /*
+     * Submit
+     */
 
     try {
       setSaving(true);
 
-      const response = await fetch("/api/books", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id,
-          title,
-          author,
-          category,
-          price,
-          ...(originalPrice !== undefined
-            ? { originalPrice }
-            : {}),
-          stock,
-          status: form.status,
-          description: form.description.trim(),
-          isbn: form.isbn.trim(),
-          publisher: form.publisher.trim(),
-          language: form.language.trim(),
-          pages: form.pages
-            ? Number(form.pages)
-            : undefined,
-          image: form.image.trim(),
-        }),
-      });
+      const response = await fetch(
+        "/api/books",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            /*
+             * Book model uses SKU, not id.
+             */
+            sku: id,
 
-      const data = await response.json();
+            title,
+
+            slug,
+
+            author,
+
+            /*
+             * This is the MongoDB Category _id.
+             */
+            category,
+
+            price,
+
+            /*
+             * Book model uses compareAtPrice.
+             */
+            ...(originalPrice !== undefined
+              ? {
+                  compareAtPrice:
+                    originalPrice,
+                }
+              : {}),
+
+            stock,
+
+            /*
+             * Book model uses boolean published.
+             */
+            published:
+              form.status === "Published",
+
+            featured:
+              form.featured,
+
+            description:
+              form.description.trim(),
+
+            isbn:
+              form.isbn.trim() ||
+              undefined,
+
+            publisher:
+              form.publisher.trim() ||
+              undefined,
+
+            language:
+              form.language.trim() ||
+              "English",
+
+            pages,
+
+            image:
+              form.image.trim() ||
+              undefined,
+
+            images: [],
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data?.error || "Failed to create book."
-        );
+        /*
+         * API may return:
+         * { message: "..." }
+         * or validation details.
+         */
+        let message =
+          data?.message ||
+          data?.error ||
+          "Failed to create book.";
+
+        /*
+         * Zod field error support.
+         */
+        if (
+          data?.errors?.fieldErrors
+        ) {
+          const fieldErrors =
+            data.errors.fieldErrors;
+
+          const firstField =
+            Object.keys(
+              fieldErrors
+            )[0];
+
+          const firstMessage =
+            firstField &&
+            Array.isArray(
+              fieldErrors[firstField]
+            )
+              ? fieldErrors[firstField][0]
+              : null;
+
+          if (firstMessage) {
+            message = firstMessage;
+          }
+        }
+
+        throw new Error(message);
       }
 
-      setSuccess("Book created successfully.");
+      /*
+       * API returns:
+       * {
+       *   success: true,
+       *   message: "...",
+       *   data: book
+       * }
+       */
+      const createdSku =
+        data?.data?.sku || id;
 
-      const createdId =
-        data?.book?.id ||
-        data?.id ||
-        id;
+      setSuccess(
+        "Book created successfully."
+      );
 
       setTimeout(() => {
-        window.location.href = `/admin/books/${encodeURIComponent(
-          createdId
-        )}`;
+        window.location.href =
+          `/admin/books/${encodeURIComponent(
+            createdSku
+          )}/edit`;
       }, 700);
     } catch (err) {
-      console.error("Create book error:", err);
+      console.error(
+        "Create book error:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -198,6 +493,7 @@ export default function NewBookPage() {
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
+
         <div>
           <Link
             href="/admin/books"
@@ -216,11 +512,13 @@ export default function NewBookPage() {
         </div>
 
         {/* Form */}
+
         <form
           onSubmit={handleSubmit}
           className="mt-8 space-y-6"
         >
           {/* Basic Information */}
+
           <section className="rounded-xl border bg-white p-6 shadow-sm">
             <div className="border-b pb-5">
               <h2 className="text-lg font-semibold text-gray-900">
@@ -233,7 +531,8 @@ export default function NewBookPage() {
             </div>
 
             <div className="mt-6 grid gap-5 md:grid-cols-2">
-              {/* Book ID */}
+              {/* Book ID / SKU */}
+
               <div>
                 <label
                   htmlFor="id"
@@ -253,7 +552,7 @@ export default function NewBookPage() {
                     )
                   }
                   placeholder="BK006"
-                  maxLength={30}
+                  maxLength={100}
                   required
                   className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm uppercase outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
                 />
@@ -264,6 +563,7 @@ export default function NewBookPage() {
               </div>
 
               {/* Title */}
+
               <div>
                 <label
                   htmlFor="title"
@@ -277,7 +577,9 @@ export default function NewBookPage() {
                   type="text"
                   value={form.title}
                   onChange={(e) =>
-                    updateField("title", e.target.value)
+                    handleTitleChange(
+                      e.target.value
+                    )
                   }
                   placeholder="Atomic Habits"
                   maxLength={200}
@@ -286,7 +588,41 @@ export default function NewBookPage() {
                 />
               </div>
 
+              {/* Slug */}
+
+              <div>
+                <label
+                  htmlFor="slug"
+                  className="mb-2 block text-sm font-medium text-gray-700"
+                >
+                  Slug *
+                </label>
+
+                <input
+                  id="slug"
+                  type="text"
+                  value={form.slug}
+                  onChange={(e) =>
+                    updateField(
+                      "slug",
+                      createSlug(
+                        e.target.value
+                      )
+                    )
+                  }
+                  placeholder="atomic-habits"
+                  maxLength={120}
+                  required
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm lowercase outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
+                />
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Used in the book URL.
+                </p>
+              </div>
+
               {/* Author */}
+
               <div>
                 <label
                   htmlFor="author"
@@ -300,7 +636,10 @@ export default function NewBookPage() {
                   type="text"
                   value={form.author}
                   onChange={(e) =>
-                    updateField("author", e.target.value)
+                    updateField(
+                      "author",
+                      e.target.value
+                    )
                   }
                   placeholder="James Clear"
                   maxLength={150}
@@ -310,6 +649,7 @@ export default function NewBookPage() {
               </div>
 
               {/* Category */}
+
               <div>
                 <label
                   htmlFor="category"
@@ -328,24 +668,41 @@ export default function NewBookPage() {
                     )
                   }
                   required
-                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
+                  disabled={
+                    loadingCategories
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900 disabled:cursor-not-allowed disabled:bg-gray-100"
                 >
                   <option value="">
-                    Select category
+                    {loadingCategories
+                      ? "Loading categories..."
+                      : "Select category"}
                   </option>
 
-                  {categories.map((category) => (
-                    <option
-                      key={category}
-                      value={category}
-                    >
-                      {category}
-                    </option>
-                  ))}
+                  {categories.map(
+                    (category) => (
+                      <option
+                        key={category._id}
+                        value={
+                          category._id
+                        }
+                      >
+                        {category.name}
+                      </option>
+                    )
+                  )}
                 </select>
+
+                {!loadingCategories &&
+                  categories.length === 0 && (
+                    <p className="mt-1 text-xs text-red-600">
+                      No active categories found.
+                    </p>
+                  )}
               </div>
 
               {/* Publisher */}
+
               <div>
                 <label
                   htmlFor="publisher"
@@ -371,6 +728,7 @@ export default function NewBookPage() {
               </div>
 
               {/* Language */}
+
               <div>
                 <label
                   htmlFor="language"
@@ -398,6 +756,7 @@ export default function NewBookPage() {
           </section>
 
           {/* Pricing & Inventory */}
+
           <section className="rounded-xl border bg-white p-6 shadow-sm">
             <div className="border-b pb-5">
               <h2 className="text-lg font-semibold text-gray-900">
@@ -411,6 +770,7 @@ export default function NewBookPage() {
 
             <div className="mt-6 grid gap-5 md:grid-cols-3">
               {/* Price */}
+
               <div>
                 <label
                   htmlFor="price"
@@ -426,7 +786,10 @@ export default function NewBookPage() {
                   step="0.01"
                   value={form.price}
                   onChange={(e) =>
-                    updateField("price", e.target.value)
+                    updateField(
+                      "price",
+                      e.target.value
+                    )
                   }
                   placeholder="499"
                   required
@@ -435,6 +798,7 @@ export default function NewBookPage() {
               </div>
 
               {/* Original Price */}
+
               <div>
                 <label
                   htmlFor="originalPrice"
@@ -461,6 +825,7 @@ export default function NewBookPage() {
               </div>
 
               {/* Stock */}
+
               <div>
                 <label
                   htmlFor="stock"
@@ -476,7 +841,10 @@ export default function NewBookPage() {
                   step="1"
                   value={form.stock}
                   onChange={(e) =>
-                    updateField("stock", e.target.value)
+                    updateField(
+                      "stock",
+                      e.target.value
+                    )
                   }
                   placeholder="24"
                   required
@@ -487,6 +855,7 @@ export default function NewBookPage() {
           </section>
 
           {/* Book Details */}
+
           <section className="rounded-xl border bg-white p-6 shadow-sm">
             <div className="border-b pb-5">
               <h2 className="text-lg font-semibold text-gray-900">
@@ -500,6 +869,7 @@ export default function NewBookPage() {
 
             <div className="mt-6 space-y-5">
               {/* Description */}
+
               <div>
                 <label
                   htmlFor="description"
@@ -530,6 +900,7 @@ export default function NewBookPage() {
 
               <div className="grid gap-5 md:grid-cols-3">
                 {/* ISBN */}
+
                 <div>
                   <label
                     htmlFor="isbn"
@@ -555,6 +926,7 @@ export default function NewBookPage() {
                 </div>
 
                 {/* Pages */}
+
                 <div>
                   <label
                     htmlFor="pages"
@@ -581,6 +953,7 @@ export default function NewBookPage() {
                 </div>
 
                 {/* Status */}
+
                 <div>
                   <label
                     htmlFor="status"
@@ -613,7 +986,34 @@ export default function NewBookPage() {
                 </div>
               </div>
 
+              {/* Featured */}
+
+              <div>
+                <label className="flex items-center gap-3 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.featured
+                    }
+                    onChange={(e) =>
+                      updateField(
+                        "featured",
+                        e.target.checked
+                      )
+                    }
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+
+                  Featured Book
+                </label>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Featured books can be displayed in featured sections of the store.
+                </p>
+              </div>
+
               {/* Image */}
+
               <div>
                 <label
                   htmlFor="image"
@@ -644,6 +1044,7 @@ export default function NewBookPage() {
           </section>
 
           {/* Messages */}
+
           {error && (
             <div
               role="alert"
@@ -653,7 +1054,9 @@ export default function NewBookPage() {
                 Unable to create book
               </p>
 
-              <p className="mt-1">{error}</p>
+              <p className="mt-1">
+                {error}
+              </p>
             </div>
           )}
 
@@ -673,6 +1076,7 @@ export default function NewBookPage() {
           )}
 
           {/* Actions */}
+
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Link
               href="/admin/books"
@@ -683,10 +1087,16 @@ export default function NewBookPage() {
 
             <button
               type="submit"
-              disabled={saving}
+              disabled={
+                saving ||
+                loadingCategories ||
+                categories.length === 0
+              }
               className="rounded-lg bg-gray-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? "Creating Book..." : "Create Book"}
+              {saving
+                ? "Creating Book..."
+                : "Create Book"}
             </button>
           </div>
         </form>

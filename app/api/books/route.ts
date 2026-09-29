@@ -1,33 +1,111 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { z } from "zod";
+import mongoose from "mongoose";
+
 import connectDB from "@/lib/db";
+import { authOptions } from "@/lib/auth";
 import Book from "@/models/Book";
+import Category from "@/models/Category";
 
 const bookSchema = z.object({
-  title: z.string().min(1, "Book title is required").max(200),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Book title is required")
+    .max(200),
+
   slug: z
     .string()
+    .trim()
     .min(1, "Slug is required")
-    .max(220)
+    .max(120)
     .regex(
       /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
       "Slug must contain only lowercase letters, numbers and hyphens"
     ),
-  author: z.string().min(1, "Author is required").max(150),
-  description: z.string().optional().default(""),
-  category: z.string().min(1, "Category is required"),
-  price: z.number().nonnegative(),
-  compareAtPrice: z.number().nonnegative().optional(),
-  stock: z.number().int().nonnegative().default(0),
-  sku: z.string().min(1, "SKU is required").max(100),
-  isbn: z.string().max(50).optional(),
-  image: z.string().optional().default(""),
-  images: z.array(z.string()).optional().default([]),
-  publisher: z.string().max(150).optional(),
-  language: z.string().max(50).optional(),
-  pages: z.number().int().positive().optional(),
-  featured: z.boolean().default(false),
-  published: z.boolean().default(true),
+
+  author: z
+    .string()
+    .trim()
+    .min(1, "Author is required")
+    .max(150),
+
+  description: z
+    .string()
+    .trim()
+    .max(5000)
+    .optional()
+    .default(""),
+
+  category: z
+    .string()
+    .trim()
+    .min(1, "Category is required"),
+
+  price: z
+    .number()
+    .nonnegative(),
+
+  compareAtPrice: z
+    .number()
+    .nonnegative()
+    .optional(),
+
+  stock: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(0),
+
+  sku: z
+    .string()
+    .trim()
+    .min(1, "SKU is required")
+    .max(100),
+
+  isbn: z
+    .string()
+    .trim()
+    .max(30)
+    .optional(),
+
+  image: z
+    .string()
+    .trim()
+    .optional()
+    .default(""),
+
+  images: z
+    .array(z.string())
+    .optional()
+    .default([]),
+
+  publisher: z
+    .string()
+    .trim()
+    .max(150)
+    .optional(),
+
+  language: z
+    .string()
+    .trim()
+    .max(50)
+    .optional(),
+
+  pages: z
+    .number()
+    .int()
+    .positive()
+    .optional(),
+
+  featured: z
+    .boolean()
+    .default(false),
+
+  published: z
+    .boolean()
+    .default(true),
 });
 
 function errorResponse(
@@ -39,42 +117,63 @@ function errorResponse(
     {
       success: false,
       message,
-      ...(details ? { errors: details } : {}),
+      ...(details !== undefined
+        ? { errors: details }
+        : {}),
     },
     { status }
   );
 }
 
-/**
- * GET /admin/book
- *
- * Supported query parameters:
- * ?search=atomic
- * ?category=self-help
- * ?published=true
- * ?featured=true
- * ?page=1
- * ?limit=20
- */
+function isAdmin(session: any) {
+  return (
+    session?.user?.role === "admin" &&
+    Boolean(session?.user?.id)
+  );
+}
+
+/* -------------------------------------------------------
+   GET /api/books
+------------------------------------------------------- */
+
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!isAdmin(session)) {
+      return errorResponse("Unauthorized", 401);
+    }
+
     await connectDB();
 
     const { searchParams } = new URL(request.url);
 
-    const search = searchParams.get("search")?.trim() || "";
-    const category = searchParams.get("category")?.trim() || "";
-    const publishedParam = searchParams.get("published");
-    const featuredParam = searchParams.get("featured");
+    const search =
+      searchParams.get("search")?.trim() || "";
+
+    const category =
+      searchParams.get("category")?.trim() || "";
+
+    const publishedParam =
+      searchParams.get("published");
+
+    const featuredParam =
+      searchParams.get("featured");
 
     const page = Math.max(
-      Number.parseInt(searchParams.get("page") || "1", 10) || 1,
+      Number.parseInt(
+        searchParams.get("page") || "1",
+        10
+      ) || 1,
       1
     );
 
     const limit = Math.min(
       Math.max(
-        Number.parseInt(searchParams.get("limit") || "20", 10) || 20,
+        Number.parseInt(
+          searchParams.get("limit") || "20",
+          10
+        ) || 20,
         1
       ),
       100
@@ -84,36 +183,72 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       filter.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { author: { $regex: search, $options: "i" } },
-        { sku: { $regex: search, $options: "i" } },
-        { isbn: { $regex: search, $options: "i" } },
+        {
+          title: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          author: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          sku: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          isbn: {
+            $regex: search,
+            $options: "i",
+          },
+        },
       ];
     }
 
-    if (category) {
+    if (
+      category &&
+      mongoose.Types.ObjectId.isValid(category)
+    ) {
       filter.category = category;
     }
 
-    if (publishedParam === "true" || publishedParam === "false") {
-      filter.published = publishedParam === "true";
+    if (
+      publishedParam === "true" ||
+      publishedParam === "false"
+    ) {
+      filter.published =
+        publishedParam === "true";
     }
 
-    if (featuredParam === "true" || featuredParam === "false") {
-      filter.featured = featuredParam === "true";
+    if (
+      featuredParam === "true" ||
+      featuredParam === "false"
+    ) {
+      filter.featured =
+        featuredParam === "true";
     }
 
     const skip = (page - 1) * limit;
 
-    const [books, total] = await Promise.all([
-      Book.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+    const [books, total] =
+      await Promise.all([
+        Book.find(filter)
+          .populate(
+            "category",
+            "name slug"
+          )
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
 
-      Book.countDocuments(filter),
-    ]);
+        Book.countDocuments(filter),
+      ]);
 
     return NextResponse.json({
       success: true,
@@ -122,13 +257,20 @@ export async function GET(request: NextRequest) {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
-        hasNextPage: page * limit < total,
-        hasPreviousPage: page > 1,
+        totalPages: Math.ceil(
+          total / limit
+        ),
+        hasNextPage:
+          page * limit < total,
+        hasPreviousPage:
+          page > 1,
       },
     });
   } catch (error) {
-    console.error("GET /admin/book error:", error);
+    console.error(
+      "GET /api/books error:",
+      error
+    );
 
     return errorResponse(
       "Failed to fetch books",
@@ -137,18 +279,39 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * POST /admin/book
- *
- * Creates a new book.
- */
-export async function POST(request: NextRequest) {
+/* -------------------------------------------------------
+   POST /api/books
+------------------------------------------------------- */
+
+export async function POST(
+  request: NextRequest
+) {
   try {
+    const session =
+      await getServerSession(authOptions);
+
+    if (!isAdmin(session)) {
+      return errorResponse(
+        "Unauthorized",
+        401
+      );
+    }
+
     await connectDB();
 
-    const body = await request.json();
+    let body: unknown;
 
-    const parsed = bookSchema.safeParse(body);
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse(
+        "Invalid JSON request body",
+        400
+      );
+    }
+
+    const parsed =
+      bookSchema.safeParse(body);
 
     if (!parsed.success) {
       return errorResponse(
@@ -160,20 +323,35 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
 
-    const existingBook = await Book.findOne({
-      $or: [
-        { slug: data.slug },
-        { sku: data.sku },
-        ...(data.isbn ? [{ isbn: data.isbn }] : []),
-      ],
-    }).lean();
+    /* Category ObjectId validation */
 
-    if (existingBook) {
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        data.category
+      )
+    ) {
       return errorResponse(
-        "A book with the same slug, SKU or ISBN already exists",
-        409
+        "Invalid category selected",
+        422
       );
     }
+
+    /* Category existence */
+
+    const category =
+      await Category.findOne({
+        _id: data.category,
+        active: true,
+      }).lean();
+
+    if (!category) {
+      return errorResponse(
+        "Selected category was not found or is inactive",
+        422
+      );
+    }
+
+    /* Price validation */
 
     if (
       data.compareAtPrice !== undefined &&
@@ -185,24 +363,107 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    /* Duplicate validation */
+
+    const duplicateQueries: Record<
+      string,
+      unknown
+    >[] = [
+      { slug: data.slug },
+      { sku: data.sku },
+    ];
+
+    if (data.isbn) {
+      duplicateQueries.push({
+        isbn: data.isbn,
+      });
+    }
+
+    const existingBook =
+      await Book.findOne({
+        $or: duplicateQueries,
+      }).lean();
+
+    if (existingBook) {
+      return errorResponse(
+        "A book with the same slug, SKU or ISBN already exists",
+        409
+      );
+    }
+
+    /* Create book */
+
     const book = await Book.create({
-      ...data,
+      title: data.title,
+      slug: data.slug,
+      author: data.author,
+      description: data.description,
+      category: new mongoose.Types.ObjectId(
+        data.category
+      ),
+      price: data.price,
+      compareAtPrice:
+        data.compareAtPrice,
+      stock: data.stock,
+      sku: data.sku.toUpperCase(),
+      isbn: data.isbn || undefined,
+      image: data.image || undefined,
+      images: data.images || [],
+      publisher:
+        data.publisher || undefined,
+      language:
+        data.language || "English",
+      pages: data.pages,
+      featured: data.featured,
+      published: data.published,
     });
 
     return NextResponse.json(
       {
         success: true,
-        message: "Book created successfully",
+        message:
+          "Book created successfully",
         data: book,
       },
       { status: 201 }
     );
-  } catch (error) {
-    console.error("POST /admin/book error:", error);
+  } catch (error: any) {
+    console.error(
+      "POST /api/books error:",
+      error
+    );
+
+    if (
+      error?.code === 11000
+    ) {
+      return errorResponse(
+        "A book with the same unique value already exists",
+        409
+      );
+    }
+
+    if (
+      error instanceof mongoose.Error.ValidationError
+    ) {
+      return errorResponse(
+        "Book validation failed",
+        422,
+        error.errors
+      );
+    }
 
     return errorResponse(
       "Failed to create book",
-      500
+      500,
+      process.env.NODE_ENV ===
+        "development"
+        ? {
+            error:
+              error instanceof Error
+                ? error.message
+                : String(error),
+          }
+        : undefined
     );
   }
 }

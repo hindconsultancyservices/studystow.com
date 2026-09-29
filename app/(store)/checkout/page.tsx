@@ -1,10 +1,14 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
   ChevronRight,
   PackageCheck,
   ShieldCheck,
+  Tag,
   Truck,
 } from "lucide-react";
 
@@ -38,15 +42,106 @@ const cartItems = [
 ];
 
 const subtotal = cartItems.reduce(
-  (total, item) => total + item.price * item.quantity,
+  (total, item) =>
+    total + item.price * item.quantity,
   0
 );
 
-const discount = 200;
-const shipping = subtotal >= 999 ? 0 : 49;
-const total = subtotal - discount + shipping;
-
 export default function CheckoutPage() {
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState("");
+  const [discount, setDiscount] = useState(0);
+
+  const [couponLoading, setCouponLoading] =
+    useState(false);
+
+  const [couponError, setCouponError] =
+    useState("");
+
+  const shipping = subtotal >= 999 ? 0 : 49;
+
+  const total =
+    subtotal - discount + shipping;
+
+  async function applyCoupon() {
+    if (!couponCode.trim()) {
+      setCouponError(
+        "Please enter a coupon code."
+      );
+      return;
+    }
+
+    try {
+      setCouponLoading(true);
+      setCouponError("");
+
+      const response = await fetch(
+        "/api/coupons/apply",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            code: couponCode.trim(),
+            subtotal,
+          }),
+        }
+      );
+
+      const text = await response.text();
+
+      let result: any = {};
+
+      try {
+        result = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(
+          "Server returned an invalid response."
+        );
+      }
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            "Failed to apply coupon."
+        );
+      }
+
+      setDiscount(
+        Number(result.data?.discount || 0)
+      );
+
+      setAppliedCoupon(
+        result.data?.code || couponCode.trim()
+      );
+
+      setCouponError("");
+    } catch (error: any) {
+      console.error(
+        "Apply coupon error:",
+        error
+      );
+
+      setDiscount(0);
+      setAppliedCoupon("");
+
+      setCouponError(
+        error?.message ||
+          "Failed to apply coupon."
+      );
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  function removeCoupon() {
+    setCouponCode("");
+    setAppliedCoupon("");
+    setDiscount(0);
+    setCouponError("");
+  }
+
   return (
     <main className="min-h-screen bg-slate-50">
       {/* Page Header */}
@@ -134,7 +229,9 @@ export default function CheckoutPage() {
                         </span>
 
                         <span className="text-sm font-semibold text-slate-900">
-                          ₹{item.price * item.quantity}
+                          ₹
+                          {item.price *
+                            item.quantity}
                         </span>
                       </div>
                     </div>
@@ -144,6 +241,7 @@ export default function CheckoutPage() {
 
               {/* Totals */}
               <div className="space-y-3 border-t p-5">
+                {/* Subtotal */}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">
                     Subtotal
@@ -154,6 +252,80 @@ export default function CheckoutPage() {
                   </span>
                 </div>
 
+                {/* Coupon */}
+                <div className="border-t pt-4">
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-slate-500" />
+
+                    <span className="text-sm font-medium text-slate-700">
+                      Coupon
+                    </span>
+                  </div>
+
+                  {appliedCoupon ? (
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold uppercase text-emerald-700">
+                          {appliedCoupon}
+                        </p>
+
+                        <p className="text-xs text-emerald-600">
+                          Coupon applied successfully
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={removeCoupon}
+                        className="ml-3 shrink-0 text-xs font-semibold text-red-600 transition hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        type="text"
+                        value={couponCode}
+                        onChange={(e) =>
+                          setCouponCode(
+                            e.target.value.toUpperCase()
+                          )
+                        }
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "Enter"
+                          ) {
+                            e.preventDefault();
+                            applyCoupon();
+                          }
+                        }}
+                        placeholder="Enter coupon code"
+                        maxLength={50}
+                        className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 px-3 text-sm uppercase outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={applyCoupon}
+                        disabled={couponLoading}
+                        className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {couponLoading
+                          ? "..."
+                          : "Apply"}
+                      </button>
+                    </div>
+                  )}
+
+                  {couponError && (
+                    <p className="mt-2 text-xs font-medium text-red-600">
+                      {couponError}
+                    </p>
+                  )}
+                </div>
+
+                {/* Discount */}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">
                     Discount
@@ -164,6 +336,7 @@ export default function CheckoutPage() {
                   </span>
                 </div>
 
+                {/* Shipping */}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">
                     Shipping
@@ -200,18 +373,18 @@ export default function CheckoutPage() {
                 </div>
 
                 {/* Place Order */}
-
                 <button
                   type="button"
                   className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
-                   <ShieldCheck className="h-4 w-4" />
-                   Place Order • ₹{total}
+                  <ShieldCheck className="h-4 w-4" />
+
+                  Place Order • ₹{total}
                 </button>
 
                 <p className="text-center text-xs leading-5 text-slate-400">
-                  By placing your order, you agree to our terms
-                  and conditions.
+                  By placing your order, you agree
+                  to our terms and conditions.
                 </p>
               </div>
             </div>
@@ -229,7 +402,8 @@ export default function CheckoutPage() {
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
-                      Your books will be packed securely for delivery.
+                      Your books will be packed
+                      securely for delivery.
                     </p>
                   </div>
                 </div>
@@ -244,7 +418,8 @@ export default function CheckoutPage() {
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
-                      Your payment information is protected.
+                      Your payment information is
+                      protected.
                     </p>
                   </div>
                 </div>

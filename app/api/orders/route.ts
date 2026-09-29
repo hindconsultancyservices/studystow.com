@@ -4,6 +4,7 @@ import { z } from "zod";
 import { connectDB } from "@/lib/db";
 import Order from "@/models/Order";
 import Book from "@/models/Book";
+import Coupon from "@/models/coupon";
 
 const orderItemSchema = z.object({
   book: z.string().min(1, "Book ID is required"),
@@ -38,16 +39,27 @@ const orderSchema = z.object({
 
   subtotal: z.number().min(0),
   shipping: z.number().min(0).default(0),
+
   discount: z.number().min(0).default(0),
+
   tax: z.number().min(0).default(0),
+
   total: z.number().min(0),
+
+  // Coupon code sent by checkout
+  couponCode: z.string().trim().max(50).optional().default(""),
 
   paymentMethod: z
     .enum(["cod", "razorpay"])
     .default("cod"),
 
   paymentStatus: z
-    .enum(["pending", "paid", "failed", "refunded"])
+    .enum([
+      "pending",
+      "paid",
+      "failed",
+      "refunded",
+    ])
     .default("pending"),
 
   orderStatus: z
@@ -64,16 +76,7 @@ const orderSchema = z.object({
   notes: z.string().max(1000).optional().default(""),
 });
 
-
 // GET /api/orders
-//
-// Examples:
-// /api/orders
-// /api/orders?page=1&limit=20
-// /api/orders?status=delivered
-// /api/orders?paymentStatus=paid
-// /api/orders?customer=USER_ID
-// /api/orders?search=ORD-1001
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
@@ -86,13 +89,22 @@ export async function GET(request: NextRequest) {
     );
 
     const limit = Math.min(
-      Math.max(Number(searchParams.get("limit") || 20), 1),
+      Math.max(
+        Number(searchParams.get("limit") || 20),
+        1
+      ),
       100
     );
 
-    const search = searchParams.get("search")?.trim() || "";
-    const customer = searchParams.get("customer")?.trim() || "";
-    const status = searchParams.get("status")?.trim() || "";
+    const search =
+      searchParams.get("search")?.trim() || "";
+
+    const customer =
+      searchParams.get("customer")?.trim() || "";
+
+    const status =
+      searchParams.get("status")?.trim() || "";
+
     const paymentStatus =
       searchParams.get("paymentStatus")?.trim() || "";
 
@@ -137,7 +149,10 @@ export async function GET(request: NextRequest) {
 
     const [orders, total] = await Promise.all([
       Order.find(filter)
-        .populate("customer", "name email phone")
+        .populate(
+          "customer",
+          "name email phone"
+        )
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -157,7 +172,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("GET /api/orders error:", error);
+    console.error(
+      "GET /api/orders error:",
+      error
+    );
 
     return NextResponse.json(
       {
@@ -169,7 +187,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-
 // POST /api/orders
 export async function POST(request: NextRequest) {
   try {
@@ -177,14 +194,16 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const validation = orderSchema.safeParse(body);
+    const validation =
+      orderSchema.safeParse(body);
 
     if (!validation.success) {
       return NextResponse.json(
         {
           success: false,
           message: "Invalid order data",
-          errors: validation.error.flatten(),
+          errors:
+            validation.error.flatten(),
         },
         { status: 400 }
       );
@@ -193,10 +212,12 @@ export async function POST(request: NextRequest) {
     const data = validation.data;
 
     /*
-     * Verify books and calculate item totals from DB.
-     * This prevents a client from sending fake prices.
+     * Get books from DB.
+     * Client cannot fake book prices.
      */
-    const bookIds = data.items.map((item) => item.book);
+    const bookIds = data.items.map(
+      (item) => item.book
+    );
 
     const books = await Book.find({
       _id: { $in: bookIds },
@@ -206,52 +227,187 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "One or more books were not found",
+          message:
+            "One or more books were not found",
         },
         { status: 400 }
       );
     }
 
     const bookMap = new Map(
-      books.map((book) => [String(book._id), book])
+      books.map((book) => [
+        String(book._id),
+        book,
+      ])
     );
 
     let calculatedSubtotal = 0;
 
-    const verifiedItems = data.items.map((item) => {
-      const book = bookMap.get(item.book);
+    const verifiedItems = data.items.map(
+      (item) => {
+        const book = bookMap.get(item.book);
 
-      if (!book) {
-        throw new Error(`Book not found: ${item.book}`);
+        if (!book) {
+          throw new Error(
+            `Book not found: ${item.book}`
+          );
+        }
+
+        const price = Number(book.price);
+        const quantity = item.quantity;
+
+        calculatedSubtotal +=
+          price * quantity;
+
+        return {
+          book: book._id,
+          title: book.title,
+          slug: book.slug,
+          quantity,
+          price,
+          image: book.image || "",
+        };
       }
+    );
 
-      const price = Number(book.price);
-      const quantity = item.quantity;
+    calculatedSubtotal =
+      Math.round(
+        calculatedSubtotal * 100
+      ) / 100;
 
-      calculatedSubtotal += price * quantity;
-
-      return {
-        book: book._id,
-        title: book.title,
-        slug: book.slug,
-        quantity,
-        price,
-        image: book.image || "",
-      };
-    });
+    const shipping = Number(data.shipping);
+    const tax = Number(data.tax);
 
     /*
-     * Calculate total on server.
+     * IMPORTANT:
+     * Never trust discount from frontend.
+     * Recalculate coupon on server.
      */
-    const shipping = data.shipping;
-    const discount = data.discount;
-    const tax = data.tax;
+    let calculatedDiscount = 0;
+
+    let coupon = null;
+
+    if (data.couponCode) {
+      coupon = await Coupon.findOne({
+        code: data.couponCode
+          .trim()
+          .toUpperCase(),
+      });
+
+      if (!coupon) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Invalid coupon code",
+          },
+          { status: 400 }
+        );
+      }
+
+      const now = new Date();
+
+      if (!coupon.active) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "This coupon is inactive",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (
+        now < new Date(coupon.startDate)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "This coupon is not active yet",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (
+        now > new Date(coupon.endDate)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "This coupon has expired",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (
+        coupon.usageLimit !==
+          undefined &&
+        coupon.usageCount >=
+          coupon.usageLimit
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Coupon usage limit has been reached",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (
+        calculatedSubtotal <
+        coupon.minOrderAmount
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Minimum order amount is ₹${coupon.minOrderAmount}`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (coupon.type === "percentage") {
+        calculatedDiscount =
+          (calculatedSubtotal *
+            coupon.value) /
+          100;
+
+        if (
+          coupon.maxDiscountAmount !==
+            undefined &&
+          calculatedDiscount >
+            coupon.maxDiscountAmount
+        ) {
+          calculatedDiscount =
+            coupon.maxDiscountAmount;
+        }
+      } else {
+        calculatedDiscount =
+          coupon.value;
+      }
+
+      calculatedDiscount = Math.min(
+        calculatedDiscount,
+        calculatedSubtotal
+      );
+
+      calculatedDiscount =
+        Math.round(
+          calculatedDiscount * 100
+        ) / 100;
+    }
 
     const calculatedTotal =
       calculatedSubtotal +
       shipping +
       tax -
-      discount;
+      calculatedDiscount;
 
     if (calculatedTotal < 0) {
       return NextResponse.json(
@@ -270,16 +426,18 @@ export async function POST(request: NextRequest) {
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const random = Math.floor(
-        100000 + Math.random() * 900000
+        100000 +
+          Math.random() * 900000
       );
 
       orderNumber = `ST-${Date.now()
         .toString()
         .slice(-6)}-${random}`;
 
-      const exists = await Order.exists({
-        orderNumber,
-      });
+      const exists =
+        await Order.exists({
+          orderNumber,
+        });
 
       if (!exists) {
         break;
@@ -290,7 +448,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "Unable to generate order number",
+          message:
+            "Unable to generate order number",
         },
         { status: 500 }
       );
@@ -306,68 +465,130 @@ export async function POST(request: NextRequest) {
 
       items: verifiedItems,
 
-      shippingAddress: data.shippingAddress,
+      shippingAddress:
+        data.shippingAddress,
 
       billingAddress:
-        data.billingAddress || data.shippingAddress,
+        data.billingAddress ||
+        data.shippingAddress,
 
       subtotal: calculatedSubtotal,
+
       shipping,
-      discount,
+
+      discount: calculatedDiscount,
+
       tax,
+
       total: calculatedTotal,
 
-      paymentMethod: data.paymentMethod,
-      paymentStatus: data.paymentStatus,
+      paymentMethod:
+        data.paymentMethod,
 
-      orderStatus: data.orderStatus,
+      paymentStatus:
+        data.paymentStatus,
+
+      orderStatus:
+        data.orderStatus,
 
       notes: data.notes,
     });
 
     /*
-     * Reduce stock after successful order.
+     * Reduce stock.
      */
     for (const item of verifiedItems) {
-      const result = await Book.updateOne(
-        {
-          _id: item.book,
-          stock: { $gte: item.quantity },
-        },
-        {
-          $inc: {
-            stock: -item.quantity,
+      const result =
+        await Book.updateOne(
+          {
+            _id: item.book,
+            stock: {
+              $gte: item.quantity,
+            },
           },
-        }
-      );
+          {
+            $inc: {
+              stock: -item.quantity,
+            },
+          }
+        );
 
       if (result.modifiedCount === 0) {
-        /*
-         * Stock race-condition protection.
-         * In a high-volume production system this should
-         * be handled with a MongoDB transaction.
-         */
         console.error(
           `Stock update failed for book ${item.book}`
         );
       }
     }
 
+    /*
+     * Coupon usage.
+     *
+     * COD order is already successfully created,
+     * so usage can be consumed here.
+     *
+     * Razorpay payment is still pending, so its
+     * coupon usage should be incremented only
+     * after successful Razorpay verification.
+     */
+    if (
+      coupon &&
+      data.paymentMethod === "cod"
+    ) {
+      await Coupon.updateOne(
+        {
+          _id: coupon._id,
+
+          ...(coupon.usageLimit !==
+            undefined && {
+            usageCount: {
+              $lt: coupon.usageLimit,
+            },
+          }),
+        },
+        {
+          $inc: {
+            usageCount: 1,
+          },
+        }
+      );
+    }
+
     return NextResponse.json(
       {
         success: true,
-        message: "Order created successfully",
-        data: order,
+        message:
+          "Order created successfully",
+
+        data: {
+          ...order.toObject(),
+
+          // Return verified values
+          subtotal:
+            calculatedSubtotal,
+
+          discount:
+            calculatedDiscount,
+
+          total:
+            calculatedTotal,
+
+          couponCode:
+            coupon?.code || "",
+        },
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error("POST /api/orders error:", error);
+    console.error(
+      "POST /api/orders error:",
+      error
+    );
 
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to create order",
+        message:
+          "Failed to create order",
       },
       { status: 500 }
     );
