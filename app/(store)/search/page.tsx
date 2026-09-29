@@ -2,12 +2,13 @@ import Link from "next/link";
 import {
   BookOpen,
   ChevronRight,
-  Heart,
   Search,
   ShoppingCart,
   Star,
   SlidersHorizontal,
 } from "lucide-react";
+
+import WishlistButton from "@/components/customer/WishlistButton";
 
 type SearchPageProps = {
   searchParams: Promise<{
@@ -115,7 +116,9 @@ const books = [
 ];
 
 function getDiscount(price: number, originalPrice: number) {
-  return Math.round(((originalPrice - price) / originalPrice) * 100);
+  return Math.round(
+    ((originalPrice - price) / originalPrice) * 100
+  );
 }
 
 export default async function SearchPage({
@@ -124,7 +127,6 @@ export default async function SearchPage({
   const params = await searchParams;
 
   const query = (params.q || "").trim();
-
   const normalizedQuery = query.toLowerCase();
 
   const results = normalizedQuery
@@ -195,35 +197,6 @@ export default async function SearchPage({
 
       {/* Content */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Search Box */}
-        <form
-          action="/search"
-          method="GET"
-          className="mb-7 rounded-2xl border bg-white p-4 shadow-sm"
-        >
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-
-              <input
-                type="search"
-                name="q"
-                defaultValue={query}
-                placeholder="Search books, authors or categories..."
-                className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              <Search className="h-4 w-4" />
-              Search
-            </button>
-          </div>
-        </form>
-
         {/* Toolbar */}
         <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <p className="text-sm text-slate-500">
@@ -241,14 +214,22 @@ export default async function SearchPage({
               className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-slate-400"
             >
               <option value="featured">Featured</option>
+
               <option value="price-low">
                 Price: Low to High
               </option>
+
               <option value="price-high">
                 Price: High to Low
               </option>
-              <option value="rating">Highest Rated</option>
-              <option value="newest">Newest</option>
+
+              <option value="rating">
+                Highest Rated
+              </option>
+
+              <option value="newest">
+                Newest
+              </option>
             </select>
           </div>
         </div>
@@ -279,16 +260,9 @@ export default async function SearchPage({
                         {discount}% OFF
                       </span>
 
-                      <button
-                        type="button"
-                        aria-label={`Add ${book.title} to wishlist`}
-                        onClick={(event) =>
-                          event.preventDefault()
-                        }
-                        className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-md transition hover:bg-slate-50"
-                      >
-                        <Heart className="h-4 w-4 text-slate-600" />
-                      </button>
+                      <WishlistButton
+                        bookTitle={book.title}
+                      />
                     </div>
                   </Link>
 
@@ -403,6 +377,7 @@ export default async function SearchPage({
             className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             View All Books
+
             <ChevronRight className="h-4 w-4" />
           </Link>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -10,11 +10,11 @@ import {
   CreditCard,
   Globe,
   KeyRound,
-  LockKeyhole,
   Mail,
   MapPin,
   Package,
   ReceiptIndianRupee,
+  RefreshCw,
   Save,
   Search,
   Settings2,
@@ -120,12 +120,22 @@ const sections: {
   },
 ];
 
+const validSectionIds = new Set<SectionId>(
+  sections.map((section) => section.id)
+);
+
 export default function AdminSettingsPage() {
   const [activeSection, setActiveSection] =
     useState<SectionId>("general");
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
+  // =========================
+  // General
+  // =========================
   const [storeName, setStoreName] = useState("StudyStow");
   const [storeEmail, setStoreEmail] = useState("");
   const [storePhone, setStorePhone] = useState("");
@@ -134,57 +144,511 @@ export default function AdminSettingsPage() {
   const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [language, setLanguage] = useState("English");
 
+  // =========================
+  // Admin Profile
+  // =========================
   const [adminName, setAdminName] = useState("Administrator");
   const [adminEmail, setAdminEmail] = useState("");
 
+  // =========================
+  // Security
+  // =========================
+  const [requireSecureAuthentication, setRequireSecureAuthentication] =
+    useState(true);
+  const [sessionDuration, setSessionDuration] = useState("24");
+  const [loginProtection, setLoginProtection] = useState("enabled");
+
+  // =========================
+  // Orders
+  // =========================
   const [orderEmail, setOrderEmail] = useState(true);
   const [customerOrderEmail, setCustomerOrderEmail] = useState(true);
   const [stockAlert, setStockAlert] = useState(true);
   const [lowStockLimit, setLowStockLimit] = useState("5");
 
+  // =========================
+  // Checkout
+  // =========================
   const [guestCheckout, setGuestCheckout] = useState(true);
   const [phoneRequired, setPhoneRequired] = useState(true);
   const [addressRequired, setAddressRequired] = useState(true);
 
+  // =========================
+  // Payments
+  // =========================
   const [codEnabled, setCodEnabled] = useState(true);
   const [razorpayEnabled, setRazorpayEnabled] = useState(true);
   const [testMode, setTestMode] = useState(true);
 
+  // =========================
+  // Shipping
+  // =========================
   const [shippingEnabled, setShippingEnabled] = useState(true);
   const [freeShippingEnabled, setFreeShippingEnabled] = useState(true);
   const [freeShippingAmount, setFreeShippingAmount] = useState("999");
   const [shippingCharge, setShippingCharge] = useState("60");
 
+  // =========================
+  // Tax
+  // =========================
   const [gstEnabled, setGstEnabled] = useState(true);
   const [gstNumber, setGstNumber] = useState("");
   const [defaultGstRate, setDefaultGstRate] = useState("18");
 
+  // =========================
+  // Email
+  // =========================
   const [smtpEnabled, setSmtpEnabled] = useState(false);
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("587");
 
+  // =========================
+  // Notifications
+  // =========================
   const [newsletter, setNewsletter] = useState(true);
   const [adminNotifications, setAdminNotifications] = useState(true);
 
+  // =========================
+  // SEO
+  // =========================
   const [siteTitle, setSiteTitle] = useState(
     "StudyStow - Books & Educational Store"
   );
+
   const [metaDescription, setMetaDescription] = useState(
     "Buy books, study materials and educational products online at StudyStow."
   );
+
+  const [canonicalUrl, setCanonicalUrl] = useState("");
+  const [googleSearchConsole, setGoogleSearchConsole] = useState("");
+
+  // =========================
+  // Maintenance
+  // =========================
   const [maintenanceMode, setMaintenanceMode] = useState(false);
 
-  function handleSave() {
-    setSaved(true);
+  /*
+  |--------------------------------------------------------------------------
+  | Read active section from URL
+  |--------------------------------------------------------------------------
+  */
 
-    setTimeout(() => {
-      setSaved(false);
-    }, 3000);
-  }
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const section = params.get("section");
+
+    if (
+      section &&
+      validSectionIds.has(section as SectionId)
+    ) {
+      setActiveSection(section as SectionId);
+    }
+  }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Change section + preserve it in URL
+  |--------------------------------------------------------------------------
+  */
 
   function toggleSection(id: SectionId) {
     setActiveSection(id);
+
+    const url = new URL(window.location.href);
+
+    url.searchParams.set("section", id);
+
+    window.history.replaceState(
+      {},
+      "",
+      `${url.pathname}?${url.searchParams.toString()}`
+    );
   }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Load settings
+  |--------------------------------------------------------------------------
+  */
+
+  async function loadSettings() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch("/api/admin/settings", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.message || "Failed to load settings."
+        );
+      }
+
+      const data = result.data;
+
+      // General
+      setStoreName(data.storeName ?? "StudyStow");
+      setStoreEmail(data.storeEmail ?? "");
+      setStorePhone(data.storePhone ?? "");
+      setStoreAddress(data.storeAddress ?? "");
+      setCurrency(data.currency ?? "INR");
+      setTimezone(data.timezone ?? "Asia/Kolkata");
+      setLanguage(data.language ?? "English");
+
+      // Profile
+      setAdminName(data.adminName ?? "Administrator");
+      setAdminEmail(data.adminEmail ?? "");
+
+      // Security
+      setRequireSecureAuthentication(
+        data.requireSecureAuthentication ?? true
+      );
+      setSessionDuration(data.sessionDuration ?? "24");
+      setLoginProtection(data.loginProtection ?? "enabled");
+
+      // Orders
+      setOrderEmail(data.orderEmail ?? true);
+      setCustomerOrderEmail(data.customerOrderEmail ?? true);
+      setStockAlert(data.stockAlert ?? true);
+      setLowStockLimit(String(data.lowStockLimit ?? 5));
+
+      // Checkout
+      setGuestCheckout(data.guestCheckout ?? true);
+      setPhoneRequired(data.phoneRequired ?? true);
+      setAddressRequired(data.addressRequired ?? true);
+
+      // Payments
+      setCodEnabled(data.codEnabled ?? true);
+      setRazorpayEnabled(data.razorpayEnabled ?? true);
+      setTestMode(data.testMode ?? true);
+
+      // Shipping
+      setShippingEnabled(data.shippingEnabled ?? true);
+      setFreeShippingEnabled(
+        data.freeShippingEnabled ?? true
+      );
+      setFreeShippingAmount(
+        String(data.freeShippingAmount ?? 999)
+      );
+      setShippingCharge(
+        String(data.shippingCharge ?? 60)
+      );
+
+      // Tax
+      setGstEnabled(data.gstEnabled ?? true);
+      setGstNumber(data.gstNumber ?? "");
+      setDefaultGstRate(
+        String(data.defaultGstRate ?? 18)
+      );
+
+      // Email
+      setSmtpEnabled(data.smtpEnabled ?? false);
+      setSmtpHost(data.smtpHost ?? "");
+      setSmtpPort(String(data.smtpPort ?? 587));
+
+      // Notifications
+      setNewsletter(data.newsletter ?? true);
+      setAdminNotifications(
+        data.adminNotifications ?? true
+      );
+
+      // SEO
+      setSiteTitle(
+        data.siteTitle ??
+          "StudyStow - Books & Educational Store"
+      );
+
+      setMetaDescription(
+        data.metaDescription ??
+          "Buy books, study materials and educational products online at StudyStow."
+      );
+
+      setCanonicalUrl(data.canonicalUrl ?? "");
+      setGoogleSearchConsole(
+        data.googleSearchConsole ?? ""
+      );
+
+      // Maintenance
+      setMaintenanceMode(
+        data.maintenanceMode ?? false
+      );
+    } catch (err) {
+      console.error("Load settings error:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load settings."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Save settings
+  |--------------------------------------------------------------------------
+  */
+
+  async function handleSave() {
+    try {
+      setSaving(true);
+      setSaved(false);
+      setError("");
+
+      const payload = {
+        // General
+        storeName: storeName.trim(),
+        storeEmail: storeEmail.trim(),
+        storePhone: storePhone.trim(),
+        storeAddress: storeAddress.trim(),
+        currency,
+        timezone,
+        language,
+
+        // Profile
+        adminName: adminName.trim(),
+        adminEmail: adminEmail.trim(),
+
+        // Security
+        requireSecureAuthentication,
+        sessionDuration,
+        loginProtection,
+
+        // Orders
+        orderEmail,
+        customerOrderEmail,
+        stockAlert,
+        lowStockLimit: Number(lowStockLimit) || 0,
+
+        // Checkout
+        guestCheckout,
+        phoneRequired,
+        addressRequired,
+
+        // Payments
+        codEnabled,
+        razorpayEnabled,
+        testMode,
+
+        // Shipping
+        shippingEnabled,
+        freeShippingEnabled,
+        freeShippingAmount:
+          Number(freeShippingAmount) || 0,
+        shippingCharge: Number(shippingCharge) || 0,
+
+        // Tax
+        gstEnabled,
+        gstNumber: gstNumber.trim(),
+        defaultGstRate:
+          Number(defaultGstRate) || 0,
+
+        // Email
+        smtpEnabled,
+        smtpHost: smtpHost.trim(),
+        smtpPort: Number(smtpPort) || 587,
+
+        // Notifications
+        newsletter,
+        adminNotifications,
+
+        // SEO
+        siteTitle: siteTitle.trim(),
+        metaDescription: metaDescription.trim(),
+        canonicalUrl: canonicalUrl.trim(),
+        googleSearchConsole:
+          googleSearchConsole.trim(),
+
+        // Maintenance
+        maintenanceMode,
+      };
+
+      const response = await fetch(
+        "/api/admin/settings",
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.message ||
+            "Failed to save settings."
+        );
+      }
+
+      setSaved(true);
+
+      /*
+       * Update UI from the actual database response.
+       * This prevents differences between the local state
+       * and the value MongoDB actually saved.
+       */
+      if (result.data) {
+        const data = result.data;
+
+        setStoreName(data.storeName ?? "");
+        setStoreEmail(data.storeEmail ?? "");
+        setStorePhone(data.storePhone ?? "");
+        setStoreAddress(data.storeAddress ?? "");
+        setCurrency(data.currency ?? "INR");
+        setTimezone(
+          data.timezone ?? "Asia/Kolkata"
+        );
+        setLanguage(data.language ?? "English");
+
+        setAdminName(
+          data.adminName ?? "Administrator"
+        );
+        setAdminEmail(data.adminEmail ?? "");
+
+        setRequireSecureAuthentication(
+          data.requireSecureAuthentication ?? true
+        );
+        setSessionDuration(
+          data.sessionDuration ?? "24"
+        );
+        setLoginProtection(
+          data.loginProtection ?? "enabled"
+        );
+
+        setOrderEmail(data.orderEmail ?? true);
+        setCustomerOrderEmail(
+          data.customerOrderEmail ?? true
+        );
+        setStockAlert(data.stockAlert ?? true);
+        setLowStockLimit(
+          String(data.lowStockLimit ?? 5)
+        );
+
+        setGuestCheckout(
+          data.guestCheckout ?? true
+        );
+        setPhoneRequired(
+          data.phoneRequired ?? true
+        );
+        setAddressRequired(
+          data.addressRequired ?? true
+        );
+
+        setCodEnabled(data.codEnabled ?? true);
+        setRazorpayEnabled(
+          data.razorpayEnabled ?? true
+        );
+        setTestMode(data.testMode ?? true);
+
+        setShippingEnabled(
+          data.shippingEnabled ?? true
+        );
+        setFreeShippingEnabled(
+          data.freeShippingEnabled ?? true
+        );
+        setFreeShippingAmount(
+          String(data.freeShippingAmount ?? 999)
+        );
+        setShippingCharge(
+          String(data.shippingCharge ?? 60)
+        );
+
+        setGstEnabled(data.gstEnabled ?? true);
+        setGstNumber(data.gstNumber ?? "");
+        setDefaultGstRate(
+          String(data.defaultGstRate ?? 18)
+        );
+
+        setSmtpEnabled(
+          data.smtpEnabled ?? false
+        );
+        setSmtpHost(data.smtpHost ?? "");
+        setSmtpPort(
+          String(data.smtpPort ?? 587)
+        );
+
+        setNewsletter(data.newsletter ?? true);
+        setAdminNotifications(
+          data.adminNotifications ?? true
+        );
+
+        setSiteTitle(
+          data.siteTitle ??
+            "StudyStow - Books & Educational Store"
+        );
+
+        setMetaDescription(
+          data.metaDescription ??
+            "Buy books, study materials and educational products online at StudyStow."
+        );
+
+        setCanonicalUrl(
+          data.canonicalUrl ?? ""
+        );
+
+        setGoogleSearchConsole(
+          data.googleSearchConsole ?? ""
+        );
+
+        setMaintenanceMode(
+          data.maintenanceMode ?? false
+        );
+      }
+
+      window.setTimeout(() => {
+        setSaved(false);
+      }, 3000);
+    } catch (err) {
+      console.error("Save settings error:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save settings."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Loading
+  |--------------------------------------------------------------------------
+  */
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-7xl">
+        <div className="flex min-h-[500px] items-center justify-center">
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            Loading store settings...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Page
+  |--------------------------------------------------------------------------
+  */
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -196,6 +660,10 @@ export default function AdminSettingsPage() {
             Admin
             <ChevronRight className="h-4 w-4" />
             Settings
+            <ChevronRight className="h-4 w-4" />
+            <span className="capitalize">
+              {activeSection}
+            </span>
           </div>
 
           <h1 className="mt-2 text-2xl font-bold text-slate-950">
@@ -203,21 +671,44 @@ export default function AdminSettingsPage() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Configure your StudyStow store, admin account, checkout,
-            payments and website preferences.
+            Configure your StudyStow store, admin account,
+            checkout, payments and website preferences.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSave}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-        >
-          <Save className="h-4 w-4" />
-          Save Changes
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={loadSettings}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                Save Changes
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
+      {/* Success */}
       {saved && (
         <div className="mb-5 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
           <Check className="h-4 w-4" />
@@ -225,8 +716,33 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
+      {/* Error */}
+      {error && (
+        <div className="mb-5 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+
+          <div className="flex-1">
+            <p className="font-semibold">
+              Settings error
+            </p>
+
+            <p className="mt-1">{error}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadSettings}
+            className="font-semibold underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        {/* Settings Navigation */}
+        {/* =========================
+            Settings Navigation
+        ========================= */}
         <aside className="h-fit rounded-xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-24">
           <div className="mb-2 px-3 py-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -237,20 +753,23 @@ export default function AdminSettingsPage() {
           <div className="space-y-1">
             {sections.map((section) => {
               const Icon = section.icon;
-              const active = activeSection === section.id;
+              const active =
+                activeSection === section.id;
 
               return (
                 <button
                   key={section.id}
                   type="button"
-                  onClick={() => toggleSection(section.id)}
+                  onClick={() =>
+                    toggleSection(section.id)
+                  }
                   className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
                     active
                       ? "bg-slate-950 text-white"
                       : "text-slate-700 hover:bg-slate-100"
                   }`}
                 >
-                  <Icon className="h-4.5 w-4.5 shrink-0" />
+                  <Icon className="h-[18px] w-[18px] shrink-0" />
 
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">
@@ -273,7 +792,9 @@ export default function AdminSettingsPage() {
           </div>
         </aside>
 
-        {/* Settings Content */}
+        {/* =========================
+            Settings Content
+        ========================= */}
         <div className="space-y-6">
           {/* GENERAL */}
           {activeSection === "general" && (
@@ -319,7 +840,10 @@ export default function AdminSettingsPage() {
                   value={timezone}
                   onChange={setTimezone}
                   options={[
-                    ["Asia/Kolkata", "India - Asia/Kolkata"],
+                    [
+                      "Asia/Kolkata",
+                      "India - Asia/Kolkata",
+                    ],
                     ["UTC", "UTC"],
                   ]}
                 />
@@ -342,7 +866,9 @@ export default function AdminSettingsPage() {
 
                 <textarea
                   value={storeAddress}
-                  onChange={(e) => setStoreAddress(e.target.value)}
+                  onChange={(e) =>
+                    setStoreAddress(e.target.value)
+                  }
                   rows={4}
                   placeholder="Enter complete business/store address"
                   className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
@@ -365,8 +891,9 @@ export default function AdminSettingsPage() {
 
                 <div>
                   <p className="font-semibold text-slate-900">
-                    Administrator
+                    {adminName || "Administrator"}
                   </p>
+
                   <p className="text-sm text-slate-500">
                     Store Administrator
                   </p>
@@ -401,7 +928,9 @@ export default function AdminSettingsPage() {
               >
                 <div className="space-y-4">
                   <ActionRow
-                    icon={<LockKeyhole className="h-5 w-5" />}
+                    icon={
+                      <LockKeyhole className="h-5 w-5" />
+                    }
                     title="Change Password"
                     description="Change your current administrator password."
                     href="/admin/profile"
@@ -409,9 +938,11 @@ export default function AdminSettingsPage() {
                   />
 
                   <ActionRow
-                    icon={<KeyRound className="h-5 w-5" />}
+                    icon={
+                      <KeyRound className="h-5 w-5" />
+                    }
                     title="Password Recovery"
-                    description="Configure password recovery so you can reset your admin password through email."
+                    description="Reset your admin password through email."
                     href="/admin/forgot-password"
                     buttonText="Password Recovery"
                   />
@@ -426,9 +957,8 @@ export default function AdminSettingsPage() {
                         </p>
 
                         <p className="mt-1 text-sm text-amber-700">
-                          Use a strong unique password and keep your
-                          recovery email accessible. Never share your
-                          administrator password.
+                          Use a strong unique password and keep
+                          your recovery email accessible.
                         </p>
                       </div>
                     </div>
@@ -444,16 +974,17 @@ export default function AdminSettingsPage() {
                 <ToggleRow
                   title="Require secure authentication"
                   description="Allow administrator access only through the authenticated login flow."
-                  enabled={true}
-                  onChange={() => {}}
-                  disabled
+                  enabled={requireSecureAuthentication}
+                  onChange={
+                    setRequireSecureAuthentication
+                  }
                 />
 
                 <div className="mt-5 grid gap-5 md:grid-cols-2">
                   <SelectField
                     label="Session Duration"
-                    value="24"
-                    onChange={() => {}}
+                    value={sessionDuration}
+                    onChange={setSessionDuration}
                     options={[
                       ["1", "1 hour"],
                       ["8", "8 hours"],
@@ -464,8 +995,8 @@ export default function AdminSettingsPage() {
 
                   <SelectField
                     label="Login Protection"
-                    value="enabled"
-                    onChange={() => {}}
+                    value={loginProtection}
+                    onChange={setLoginProtection}
                     options={[
                       ["enabled", "Enabled"],
                       ["disabled", "Disabled"],
@@ -520,7 +1051,9 @@ export default function AdminSettingsPage() {
           {/* CHECKOUT */}
           {activeSection === "checkout" && (
             <SettingsCard
-              icon={<ShoppingCart className="h-5 w-5" />}
+              icon={
+                <ShoppingCart className="h-5 w-5" />
+              }
               title="Checkout Settings"
               description="Configure the customer checkout experience."
             >
@@ -589,8 +1122,8 @@ export default function AdminSettingsPage() {
                     </p>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      Razorpay API keys should be stored in environment
-                      variables, not directly inside this page.
+                      Razorpay API keys should remain in
+                      environment variables, not this page.
                     </p>
                   </div>
                 </div>
@@ -644,7 +1177,9 @@ export default function AdminSettingsPage() {
           {/* TAX */}
           {activeSection === "tax" && (
             <SettingsCard
-              icon={<ReceiptIndianRupee className="h-5 w-5" />}
+              icon={
+                <ReceiptIndianRupee className="h-5 w-5" />
+              }
               title="Tax & GST"
               description="Configure GST and tax-related store settings."
             >
@@ -674,8 +1209,8 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">
-                  GST settings should match your actual tax registration
-                  and product tax requirements.
+                  GST settings should match your actual tax
+                  registration and product requirements.
                 </div>
               </div>
             </SettingsCard>
@@ -792,7 +1327,8 @@ export default function AdminSettingsPage() {
                   />
 
                   <p className="mt-1 text-xs text-slate-400">
-                    {metaDescription.length}/160 characters
+                    {metaDescription.length}/160
+                    characters
                   </p>
                 </div>
 
@@ -800,11 +1336,15 @@ export default function AdminSettingsPage() {
                   <Field
                     label="Canonical Website URL"
                     placeholder="https://studystow.com"
+                    value={canonicalUrl}
+                    onChange={setCanonicalUrl}
                   />
 
                   <Field
                     label="Google Search Console"
                     placeholder="Verification code"
+                    value={googleSearchConsole}
+                    onChange={setGoogleSearchConsole}
                   />
                 </div>
 
@@ -850,9 +1390,8 @@ export default function AdminSettingsPage() {
                       </p>
 
                       <p className="mt-1 text-sm text-red-700">
-                        Enabling maintenance mode can prevent customers
-                        from accessing the storefront. Existing admin
-                        access should remain available.
+                        Enabling maintenance mode can prevent
+                        customers from accessing the storefront.
                       </p>
                     </div>
                   </div>
@@ -893,17 +1432,27 @@ export default function AdminSettingsPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Review your settings before saving changes.
+                Changes are stored in your database.
               </p>
             </div>
 
             <button
               type="button"
               onClick={handleSave}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+              disabled={saving}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Save className="h-4 w-4" />
-              Save Changes
+              {saving ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -983,10 +1532,16 @@ function Field({
         <input
           type={type}
           value={value}
-          onChange={(e) => onChange?.(e.target.value)}
+          onChange={(e) =>
+            onChange?.(e.target.value)
+          }
           placeholder={placeholder}
           className={`w-full rounded-lg border border-slate-300 py-2.5 text-sm outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 ${
-            prefix ? "pl-8 pr-3" : suffix ? "pl-3 pr-9" : "px-3"
+            prefix
+              ? "pl-8 pr-3"
+              : suffix
+                ? "pl-3 pr-9"
+                : "px-3"
           }`}
         />
 
@@ -1019,14 +1574,21 @@ function SelectField({
 
       <select
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) =>
+          onChange(e.target.value)
+        }
         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
       >
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
+        {options.map(
+          ([optionValue, optionLabel]) => (
+            <option
+              key={optionValue}
+              value={optionValue}
+            >
+              {optionLabel}
+            </option>
+          )
+        )}
       </select>
     </div>
   );
@@ -1064,15 +1626,25 @@ function ToggleRow({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => onChange(!enabled)}
+        onClick={() =>
+          onChange(!enabled)
+        }
         aria-pressed={enabled}
         className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-          enabled ? "bg-slate-950" : "bg-slate-300"
-        } ${disabled ? "cursor-not-allowed" : ""}`}
+          enabled
+            ? "bg-slate-950"
+            : "bg-slate-300"
+        } ${
+          disabled
+            ? "cursor-not-allowed"
+            : ""
+        }`}
       >
         <span
           className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition ${
-            enabled ? "left-6" : "left-1"
+            enabled
+              ? "left-6"
+              : "left-1"
           }`}
         />
       </button>
@@ -1096,7 +1668,9 @@ function ActionRow({
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 text-slate-600">{icon}</div>
+        <div className="mt-0.5 text-slate-600">
+          {icon}
+        </div>
 
         <div>
           <p className="text-sm font-semibold text-slate-900">

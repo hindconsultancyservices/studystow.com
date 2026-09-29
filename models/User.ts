@@ -12,7 +12,6 @@ export type UserRole =
   | "customer"
   | "admin";
 
-
 // ============================================================
 // USER INTERFACE
 // ============================================================
@@ -34,7 +33,6 @@ export interface IUser extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
-
 
 // ============================================================
 // USER SCHEMA
@@ -78,7 +76,6 @@ const UserSchema = new Schema<IUser>(
       maxlength: 15,
     },
 
-
     // --------------------------------------------------------
     // PASSWORD RESET
     // --------------------------------------------------------
@@ -95,7 +92,6 @@ const UserSchema = new Schema<IUser>(
       select: false,
     },
 
-
     // --------------------------------------------------------
     // ROLE
     // --------------------------------------------------------
@@ -109,7 +105,6 @@ const UserSchema = new Schema<IUser>(
       default: "customer",
       required: true,
     },
-
 
     // --------------------------------------------------------
     // ACCOUNT STATUS
@@ -127,14 +122,13 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-
 // ============================================================
 // INDEXES
 // ============================================================
 
-UserSchema.index({
-  email: 1,
-});
+// email ke liye separate index nahi lagaya gaya,
+// kyunki email field me already unique: true hai.
+// Isse duplicate schema index warning nahi aayegi.
 
 UserSchema.index({
   role: 1,
@@ -144,7 +138,6 @@ UserSchema.index({
 UserSchema.index({
   createdAt: -1,
 });
-
 
 // ============================================================
 // MODEL

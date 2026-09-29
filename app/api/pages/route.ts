@@ -1,76 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
+import { getServerSession } from "next-auth";
 
-import { connectDB } from "@/lib/db";
-import Page from "@/models/Page";
+import { authOptions } from "@/lib/auth";
+import connectDB from "@/lib/db";
+import Page, {
+  type PageStatus,
+  type PageType,
+} from "@/models/Page";
 
-const pageSchema = z.object({
-  title: z.string().min(2, "Title is required").max(200),
+async function requireAdmin() {
+  const session = await getServerSession(authOptions);
 
-  slug: z
-    .string()
-    .min(2, "Slug is required")
-    .max(200)
-    .regex(
-      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      "Slug must contain only lowercase letters, numbers and hyphens"
-    ),
+  if (session?.user?.role !== "admin") {
+    return null;
+  }
 
-  content: z.string().optional().default(""),
+  return session;
+}
 
-  excerpt: z.string().max(500).optional().default(""),
-
-  featuredImage: z.string().optional().default(""),
-
-  metaTitle: z.string().max(200).optional().default(""),
-
-  metaDescription: z.string().max(500).optional().default(""),
-
-  status: z
-    .enum(["draft", "published"])
-    .optional()
-    .default("draft"),
-
-  featured: z.boolean().optional().default(false),
-
-  sortOrder: z
-    .number()
-    .int()
-    .min(0)
-    .optional()
-    .default(0),
-});
-
-
-// GET /api/pages
-//
-// Examples:
-// /api/pages
-// /api/pages?search=about
-// /api/pages?status=published
-// /api/pages?featured=true
-// /api/pages?page=1&limit=20
 export async function GET(request: NextRequest) {
   try {
+    const session = await requireAdmin();
+
+    if (!session) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unauthorized",
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
     const { searchParams } = new URL(request.url);
 
+    const search =
+      searchParams.get("search")?.trim() || "";
+
+    const status =
+      searchParams.get("status") || "";
+
+    const type =
+      searchParams.get("type") || "";
+
     const page = Math.max(
-      Number(searchParams.get("page") || 1),
+      Number(searchParams.get("page")) || 1,
       1
     );
 
     const limit = Math.min(
-      Math.max(Number(searchParams.get("limit") || 20), 1),
-      100
+      Math.max(
+        Number(searchParams.get("limit")) || 10,
+        1
+      ),
+      50
     );
 
-    const search = searchParams.get("search")?.trim() || "";
-    const status = searchParams.get("status")?.trim() || "";
-    const featured = searchParams.get("featured");
-
     const filter: Record<string, unknown> = {};
+
+    if (
+      status === "published" ||
+      status === "draft"
+    ) {
+      filter.status = status;
+    }
+
+    if (
+      [
+        "homepage",
+        "static",
+        "legal",
+        "policy",
+        "support",
+        "custom",
+      ].includes(type)
+    ) {
+      filter.type = type;
+    }
 
     if (search) {
       filter.$or = [
@@ -87,7 +95,7 @@ export async function GET(request: NextRequest) {
           },
         },
         {
-          excerpt: {
+          seoTitle: {
             $regex: search,
             $options: "i",
           },
@@ -95,45 +103,61 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    if (status === "draft" || status === "published") {
-      filter.status = status;
-    }
-
-    if (featured === "true") {
-      filter.featured = true;
-    }
-
-    if (featured === "false") {
-      filter.featured = false;
-    }
-
     const skip = (page - 1) * limit;
 
-    const [pages, total] = await Promise.all([
+    const [
+      pages,
+      total,
+      totalPages,
+      published,
+      drafts,
+    ] = await Promise.all([
       Page.find(filter)
-        .sort({
-          sortOrder: 1,
-          createdAt: -1,
-        })
+        .populate("author", "name email")
+        .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
 
       Page.countDocuments(filter),
+
+      Page.countDocuments(),
+
+      Page.countDocuments({
+        status: "published",
+      }),
+
+      Page.countDocuments({
+        status: "draft",
+      }),
     ]);
 
     return NextResponse.json({
       success: true,
+
       data: pages,
+
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.max(
+          Math.ceil(total / limit),
+          1
+        ),
+      },
+
+      stats: {
+        total: totalPages,
+        published,
+        drafts,
       },
     });
   } catch (error) {
-    console.error("GET /api/pages error:", error);
+    console.error(
+      "GET /api/pages error:",
+      error
+    );
 
     return NextResponse.json(
       {
@@ -145,55 +169,153 @@ export async function GET(request: NextRequest) {
   }
 }
 
-
-// POST /api/pages
 export async function POST(request: NextRequest) {
   try {
+    const session = await requireAdmin();
+
+    if (!session) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unauthorized",
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
     const body = await request.json();
 
-    const validation = pageSchema.safeParse(body);
+    const title =
+      String(body?.title || "").trim();
 
-    if (!validation.success) {
+    const slug =
+      String(body?.slug || "")
+        .trim()
+        .toLowerCase();
+
+    const content =
+      String(body?.content || "");
+
+    const type =
+      String(body?.type || "custom");
+
+    const status =
+      String(body?.status || "draft");
+
+    const seoTitle =
+      String(body?.seoTitle || "").trim();
+
+    const seoDescription =
+      String(body?.seoDescription || "").trim();
+
+    const noIndex =
+      Boolean(body?.noIndex);
+
+    if (!title) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid page data",
-          errors: validation.error.flatten(),
+          message: "Page title is required",
         },
         { status: 400 }
       );
     }
 
-    const data = validation.data;
+    if (!slug) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Page slug is required",
+        },
+        { status: 400 }
+      );
+    }
 
-    // Check duplicate slug
-    const existingPage = await Page.findOne({
-      slug: data.slug,
-    }).lean();
+    if (!/^\/?[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*\/?$/.test(slug)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid slug. Use letters, numbers and hyphens only.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalizedSlug =
+      slug === "/"
+        ? "/"
+        : `/${slug.replace(/^\/+|\/+$/g, "")}`;
+
+    const validTypes: PageType[] = [
+      "homepage",
+      "static",
+      "legal",
+      "policy",
+      "support",
+      "custom",
+    ];
+
+    const validStatuses: PageStatus[] = [
+      "published",
+      "draft",
+    ];
+
+    if (!validTypes.includes(type as PageType)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid page type",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !validStatuses.includes(
+        status as PageStatus
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid page status",
+        },
+        { status: 400 }
+      );
+    }
+
+    const existingPage =
+      await Page.findOne({
+        slug: normalizedSlug,
+      }).lean();
 
     if (existingPage) {
       return NextResponse.json(
         {
           success: false,
-          message: "A page with this slug already exists",
+          message:
+            "A page with this slug already exists",
         },
         { status: 409 }
       );
     }
 
+    const authorId = session.user?.id;
+
     const page = await Page.create({
-      title: data.title,
-      slug: data.slug,
-      content: data.content,
-      excerpt: data.excerpt,
-      featuredImage: data.featuredImage,
-      metaTitle: data.metaTitle,
-      metaDescription: data.metaDescription,
-      status: data.status,
-      featured: data.featured,
-      sortOrder: data.sortOrder,
+      title,
+      slug: normalizedSlug,
+      type: type as PageType,
+      content,
+      status: status as PageStatus,
+      seoTitle: seoTitle || undefined,
+      seoDescription:
+        seoDescription || undefined,
+      noIndex,
+      author: authorId || undefined,
     });
 
     return NextResponse.json(
@@ -205,7 +327,10 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("POST /api/pages error:", error);
+    console.error(
+      "POST /api/pages error:",
+      error
+    );
 
     return NextResponse.json(
       {

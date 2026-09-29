@@ -4,51 +4,36 @@ import mongoose, {
   Schema,
 } from "mongoose";
 
-// ============================================================
-// TYPES
-// ============================================================
+export type PageStatus = "published" | "draft";
 
-export type PageStatus =
-  | "draft"
-  | "published";
-
-
-// ============================================================
-// PAGE INTERFACE
-// ============================================================
+export type PageType =
+  | "homepage"
+  | "static"
+  | "legal"
+  | "policy"
+  | "support"
+  | "custom";
 
 export interface IPage extends Document {
   title: string;
   slug: string;
+  type: PageType;
   content: string;
-
-  excerpt?: string;
-
-  featuredImage?: string;
-
-  metaTitle?: string;
-  metaDescription?: string;
 
   status: PageStatus;
 
-  featured: boolean;
-  sortOrder: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  noIndex: boolean;
+
+  author?: mongoose.Types.ObjectId;
 
   createdAt: Date;
   updatedAt: Date;
 }
 
-
-// ============================================================
-// PAGE SCHEMA
-// ============================================================
-
 const PageSchema = new Schema<IPage>(
   {
-    // --------------------------------------------------------
-    // BASIC PAGE INFORMATION
-    // --------------------------------------------------------
-
     title: {
       type: String,
       required: true,
@@ -62,109 +47,81 @@ const PageSchema = new Schema<IPage>(
       unique: true,
       lowercase: true,
       trim: true,
-      maxlength: 120,
+      maxlength: 200,
+    },
+
+    type: {
+      type: String,
+      enum: [
+        "homepage",
+        "static",
+        "legal",
+        "policy",
+        "support",
+        "custom",
+      ],
+      default: "custom",
+      required: true,
     },
 
     content: {
       type: String,
+      default: "",
+      maxlength: 50000,
+    },
+
+    status: {
+      type: String,
+      enum: ["published", "draft"],
+      default: "draft",
       required: true,
+      index: true,
     },
 
-    excerpt: {
-      type: String,
-      trim: true,
-      maxlength: 500,
-    },
-
-
-    // --------------------------------------------------------
-    // IMAGE
-    // --------------------------------------------------------
-
-    featuredImage: {
-      type: String,
-      trim: true,
-    },
-
-
-    // --------------------------------------------------------
-    // SEO
-    // --------------------------------------------------------
-
-    metaTitle: {
+    seoTitle: {
       type: String,
       trim: true,
       maxlength: 200,
     },
 
-    metaDescription: {
+    seoDescription: {
       type: String,
       trim: true,
       maxlength: 500,
     },
 
-
-    // --------------------------------------------------------
-    // STATUS
-    // --------------------------------------------------------
-
-    status: {
-      type: String,
-      enum: [
-        "draft",
-        "published",
-      ],
-      default: "draft",
-      required: true,
-    },
-
-    featured: {
+    noIndex: {
       type: Boolean,
       default: false,
     },
 
-    sortOrder: {
-      type: Number,
-      default: 0,
-      min: 0,
+    author: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: undefined,
     },
   },
-
   {
     timestamps: true,
   }
 );
 
-
-// ============================================================
-// INDEXES
-// ============================================================
-
 PageSchema.index({
   status: 1,
-  sortOrder: 1,
+  updatedAt: -1,
 });
 
 PageSchema.index({
-  featured: 1,
+  type: 1,
   status: 1,
 });
 
 PageSchema.index({
-  status: 1,
-  createdAt: -1,
+  title: 1,
 });
-
-
-// ============================================================
-// MODEL
-// ============================================================
 
 const Page: Model<IPage> =
   mongoose.models.Page ||
-  mongoose.model<IPage>(
-    "Page",
-    PageSchema
-  );
+  mongoose.model<IPage>("Page", PageSchema);
 
 export default Page;
