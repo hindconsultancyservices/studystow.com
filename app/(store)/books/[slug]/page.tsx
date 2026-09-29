@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 
+import connectDB from "@/lib/db";
+import Book from "@/models/Book";
 import BookDetails from "@/components/customer/BookDetails";
 
 type BookPageProps = {
@@ -14,30 +17,64 @@ export default async function BookPage({
 }: BookPageProps) {
   const { slug } = await params;
 
-  /*
-   * Temporary book data.
-   *
-   * Abhi demo ke liye.
-   * Baad me isi jagah MongoDB se
-   * slug ke basis par book fetch karenge.
-   */
-  const book = {
-    id: "BK001",
-    title: "Atomic Habits",
+  await connectDB();
+
+  const bookData = await Book.findOne({
     slug,
-    author: "James Clear",
-    category: "Self Help",
-    price: 499,
-    originalPrice: 699,
-    rating: 4.8,
-    reviews: 124,
-    stock: 24,
-    isbn: "9780735211292",
-    publisher: "Avery",
-    language: "English",
-    pages: 320,
+    published: true,
+  })
+    .populate("category", "name slug")
+    .lean();
+
+  if (!bookData) {
+    notFound();
+  }
+
+  const categoryInfo =
+    typeof bookData.category === "object" &&
+    bookData.category !== null &&
+    "name" in bookData.category &&
+    "slug" in bookData.category
+      ? {
+          name: String(
+            (bookData.category as unknown as { name?: unknown }).name,
+          ),
+          slug: String(
+            (bookData.category as unknown as { slug?: unknown }).slug,
+          ),
+        }
+      : {
+          name: "Uncategorized",
+          slug: "uncategorized",
+        };
+
+  const book = {
+    id: bookData._id.toString(),
+    title: bookData.title,
+    slug: bookData.slug,
+    author: bookData.author,
+    category: categoryInfo,
+
+    price: Number(bookData.price || 0),
+    originalPrice: Number(
+      bookData.compareAtPrice || bookData.price || 0,
+    ),
+
+    stock: Number(bookData.stock || 0),
+
+    isbn: bookData.isbn || "",
+    publisher: bookData.publisher || "",
+    language: bookData.language || "English",
+    pages: Number(bookData.pages || 0),
+
     description:
-      "Atomic Habits is a practical guide to building good habits, breaking bad ones, and making small changes that lead to remarkable results.",
+      bookData.description ||
+      "No description available.",
+
+    image: bookData.image || "",
+    images: Array.isArray(bookData.images)
+      ? bookData.images
+      : [],
   };
 
   return (
@@ -64,12 +101,10 @@ export default async function BookPage({
           <ChevronRight className="h-4 w-4" />
 
           <Link
-            href={`/category/${book.category
-              .toLowerCase()
-              .replace(/\s+/g, "-")}`}
+            href={`/category/${book.category.slug}`}
             className="hover:text-gray-900"
           >
-            {book.category}
+            {book.category.name}
           </Link>
 
           <ChevronRight className="h-4 w-4" />

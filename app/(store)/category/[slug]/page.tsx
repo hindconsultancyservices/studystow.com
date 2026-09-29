@@ -2,175 +2,64 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
   ChevronRight,
   Heart,
   ShoppingCart,
-  Star,
 } from "lucide-react";
 
+type Category = {
+  _id: string;
+  name: string;
+  slug: string;
+  description?: string;
+};
+
 type Book = {
-  id: string;
+  _id: string;
   slug: string;
   title: string;
+  author: string;
+  category:
+    | string
+    | {
+        _id?: string;
+        name?: string;
+        slug?: string;
+      };
+  price: number;
+  compareAtPrice?: number;
+  stock: number;
+  image?: string;
+};
+
+type CartItem = {
+  id: string;
+  title: string;
+  slug: string;
   author: string;
   category: string;
   price: number;
   originalPrice: number;
-  rating: number;
-  reviews: number;
   stock: number;
-};
-
-type CartItem = Book & {
+  image?: string;
   quantity: number;
-};
-
-const books: Book[] = [
-  {
-    id: "BK001",
-    slug: "atomic-habits",
-    title: "Atomic Habits",
-    author: "James Clear",
-    category: "Self Help",
-    price: 499,
-    originalPrice: 699,
-    rating: 4.8,
-    reviews: 124,
-    stock: 24,
-  },
-  {
-    id: "BK002",
-    slug: "the-psychology-of-money",
-    title: "The Psychology of Money",
-    author: "Morgan Housel",
-    category: "Finance",
-    price: 399,
-    originalPrice: 599,
-    rating: 4.7,
-    reviews: 98,
-    stock: 18,
-  },
-  {
-    id: "BK003",
-    slug: "rich-dad-poor-dad",
-    title: "Rich Dad Poor Dad",
-    author: "Robert T. Kiyosaki",
-    category: "Finance",
-    price: 349,
-    originalPrice: 499,
-    rating: 4.6,
-    reviews: 86,
-    stock: 12,
-  },
-  {
-    id: "BK004",
-    slug: "ikigai",
-    title: "Ikigai",
-    author: "Héctor García & Francesc Miralles",
-    category: "Self Help",
-    price: 299,
-    originalPrice: 399,
-    rating: 4.5,
-    reviews: 76,
-    stock: 30,
-  },
-  {
-    id: "BK005",
-    slug: "deep-work",
-    title: "Deep Work",
-    author: "Cal Newport",
-    category: "Productivity",
-    price: 449,
-    originalPrice: 599,
-    rating: 4.7,
-    reviews: 64,
-    stock: 15,
-  },
-  {
-    id: "BK006",
-    slug: "the-alchemist",
-    title: "The Alchemist",
-    author: "Paulo Coelho",
-    category: "Fiction",
-    price: 299,
-    originalPrice: 399,
-    rating: 4.8,
-    reviews: 145,
-    stock: 22,
-  },
-  {
-    id: "BK007",
-    slug: "think-and-grow-rich",
-    title: "Think and Grow Rich",
-    author: "Napoleon Hill",
-    category: "Business",
-    price: 329,
-    originalPrice: 449,
-    rating: 4.5,
-    reviews: 71,
-    stock: 9,
-  },
-  {
-    id: "BK008",
-    slug: "the-power-of-now",
-    title: "The Power of Now",
-    author: "Eckhart Tolle",
-    category: "Spirituality",
-    price: 379,
-    originalPrice: 499,
-    rating: 4.6,
-    reviews: 59,
-    stock: 17,
-  },
-];
-
-const categoryInfo: Record<
-  string,
-  {
-    name: string;
-    description: string;
-  }
-> = {
-  "self-help": {
-    name: "Self Help",
-    description:
-      "Personal growth, habits, mindset and practical books for everyday improvement.",
-  },
-  finance: {
-    name: "Finance",
-    description:
-      "Money, investing, personal finance and wealth-building books.",
-  },
-  productivity: {
-    name: "Productivity",
-    description:
-      "Books to improve focus, time management, efficiency and productivity.",
-  },
-  fiction: {
-    name: "Fiction",
-    description:
-      "Stories, novels and timeless fiction from popular authors.",
-  },
-  business: {
-    name: "Business",
-    description:
-      "Entrepreneurship, leadership, management and business strategy books.",
-  },
-  spirituality: {
-    name: "Spirituality",
-    description:
-      "Books about spirituality, inner peace, mindfulness and personal reflection.",
-  },
 };
 
 const WISHLIST_KEY = "studystow-wishlist";
 const CART_KEY = "studystow-cart";
 
-function getDiscount(price: number, originalPrice: number) {
+function getDiscount(
+  price: number,
+  originalPrice: number
+) {
+  if (!originalPrice || originalPrice <= price) {
+    return 0;
+  }
+
   return Math.round(
     ((originalPrice - price) / originalPrice) * 100
   );
@@ -184,22 +73,127 @@ export default function CategorySlugPage() {
       ? params.slug.toLowerCase()
       : "";
 
-  const category = categoryInfo[slug];
+  const [category, setCategory] =
+    useState<Category | null>(null);
 
-  const [wishlist, setWishlist] = useState<string[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [message, setMessage] = useState("");
+  const [books, setBooks] = useState<Book[]>([]);
+
+  const [loading, setLoading] = useState(true);
+
+  const [notFound, setNotFound] =
+    useState(false);
+
+  const [wishlist, setWishlist] =
+    useState<string[]>([]);
+
+  const [cart, setCart] =
+    useState<CartItem[]>([]);
+
+  const [message, setMessage] =
+    useState("");
+
+  useEffect(() => {
+    if (!slug) return;
+
+    async function loadCategory() {
+      try {
+        setLoading(true);
+        setNotFound(false);
+
+        // Get real category
+        const categoryResponse =
+          await fetch(
+            `/api/categories?active=true`,
+            {
+              cache: "no-store",
+            }
+          );
+
+        if (!categoryResponse.ok) {
+          throw new Error(
+            "Failed to load categories"
+          );
+        }
+
+        const categoryData =
+          await categoryResponse.json();
+
+        const categories =
+          Array.isArray(categoryData?.data)
+            ? categoryData.data
+            : Array.isArray(categoryData?.categories)
+              ? categoryData.categories
+              : [];
+
+        const foundCategory =
+          categories.find(
+            (item: Category) =>
+              item.slug?.toLowerCase() === slug
+          );
+
+        if (!foundCategory) {
+          setNotFound(true);
+          setLoading(false);
+          return;
+        }
+
+        setCategory(foundCategory);
+
+        // Get real books for this category
+        const booksResponse =
+          await fetch(
+            `/api/books?published=true&category=${encodeURIComponent(
+              foundCategory._id
+            )}&limit=100`,
+            {
+              cache: "no-store",
+            }
+          );
+
+        if (!booksResponse.ok) {
+          throw new Error(
+            "Failed to load books"
+          );
+        }
+
+        const booksData =
+          await booksResponse.json();
+
+        const realBooks = Array.isArray(
+          booksData?.data
+        )
+          ? booksData.data
+          : [];
+
+        setBooks(realBooks);
+      } catch (error) {
+        console.error(
+          "Failed to load category:",
+          error
+        );
+
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadCategory();
+  }, [slug]);
 
   useEffect(() => {
     try {
       const savedWishlist =
-        localStorage.getItem(WISHLIST_KEY);
+        localStorage.getItem(
+          WISHLIST_KEY
+        );
 
       const savedCart =
         localStorage.getItem(CART_KEY);
 
       if (savedWishlist) {
-        const parsed = JSON.parse(savedWishlist);
+        const parsed =
+          JSON.parse(savedWishlist);
 
         if (Array.isArray(parsed)) {
           setWishlist(
@@ -215,7 +209,8 @@ export default function CategorySlugPage() {
       }
 
       if (savedCart) {
-        const parsed = JSON.parse(savedCart);
+        const parsed =
+          JSON.parse(savedCart);
 
         if (Array.isArray(parsed)) {
           setCart(parsed);
@@ -223,19 +218,11 @@ export default function CategorySlugPage() {
       }
     } catch (error) {
       console.error(
-        "Failed to load category data:",
+        "Failed to load cart/wishlist:",
         error
       );
     }
   }, []);
-
-  const categoryBooks = useMemo(() => {
-    if (!category) return [];
-
-    return books.filter(
-      (book) => book.category === category.name
-    );
-  }, [category]);
 
   function showMessage(text: string) {
     setMessage(text);
@@ -246,17 +233,33 @@ export default function CategorySlugPage() {
   }
 
   function toggleWishlist(book: Book) {
-    const exists = wishlist.includes(book.id);
+    const bookId = book._id;
+
+    const exists =
+      wishlist.includes(bookId);
 
     const nextWishlist = exists
-      ? wishlist.filter((id) => id !== book.id)
-      : [...wishlist, book.id];
+      ? wishlist.filter(
+          (id) => id !== bookId
+        )
+      : [...wishlist, bookId];
 
     setWishlist(nextWishlist);
 
-    const wishlistBooks = books.filter((item) =>
-      nextWishlist.includes(item.id)
-    );
+    const wishlistBooks = books
+      .filter((item) =>
+        nextWishlist.includes(item._id)
+      )
+      .map((item) => ({
+        id: item._id,
+        title: item.title,
+        slug: item.slug,
+        author: item.author,
+        price: item.price,
+        compareAtPrice:
+          item.compareAtPrice,
+        image: item.image,
+      }));
 
     localStorage.setItem(
       WISHLIST_KEY,
@@ -271,14 +274,26 @@ export default function CategorySlugPage() {
   }
 
   function addToCart(book: Book) {
+    if (book.stock <= 0) {
+      showMessage("Book is out of stock");
+      return;
+    }
+
     const existing = cart.find(
-      (item) => item.id === book.id
+      (item) => item.id === book._id
     );
 
     let nextCart: CartItem[];
 
+    const categoryName =
+      typeof book.category === "object"
+        ? book.category?.name || ""
+        : book.category || "";
+
     if (existing) {
-      if (existing.quantity >= book.stock) {
+      if (
+        existing.quantity >= book.stock
+      ) {
         showMessage(
           `Only ${book.stock} copies available`
         );
@@ -286,10 +301,17 @@ export default function CategorySlugPage() {
       }
 
       nextCart = cart.map((item) =>
-        item.id === book.id
+        item.id === book._id
           ? {
               ...item,
-              quantity: item.quantity + 1,
+              quantity:
+                item.quantity + 1,
+              price: book.price,
+              originalPrice:
+                book.compareAtPrice ||
+                book.price,
+              stock: book.stock,
+              image: book.image,
             }
           : item
       );
@@ -297,7 +319,17 @@ export default function CategorySlugPage() {
       nextCart = [
         ...cart,
         {
-          ...book,
+          id: book._id,
+          title: book.title,
+          slug: book.slug,
+          author: book.author,
+          category: categoryName,
+          price: book.price,
+          originalPrice:
+            book.compareAtPrice ||
+            book.price,
+          stock: book.stock,
+          image: book.image,
           quantity: 1,
         },
       ];
@@ -310,11 +342,26 @@ export default function CategorySlugPage() {
       JSON.stringify(nextCart)
     );
 
-    showMessage(`${book.title} added to cart`);
+    showMessage(
+      `${book.title} added to cart`
+    );
   }
 
-  // Invalid category
-  if (!category) {
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-slate-50">
+        <section className="mx-auto max-w-7xl px-4 py-20 text-center">
+          <BookOpen className="mx-auto h-12 w-12 animate-pulse text-slate-300" />
+
+          <p className="mt-4 text-sm text-slate-500">
+            Loading category...
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  if (notFound || !category) {
     return (
       <main className="min-h-screen bg-slate-50">
         <section className="mx-auto max-w-7xl px-4 py-20 text-center sm:px-6 lg:px-8">
@@ -325,7 +372,8 @@ export default function CategorySlugPage() {
           </h1>
 
           <p className="mt-2 text-slate-500">
-            The category you are looking for does not exist.
+            The category you are looking for
+            does not exist.
           </p>
 
           <Link
@@ -342,7 +390,6 @@ export default function CategorySlugPage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
-      {/* Toast */}
       {message && (
         <div className="fixed right-4 top-20 z-50 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           {message}
@@ -352,7 +399,6 @@ export default function CategorySlugPage() {
       {/* Header */}
       <section className="border-b bg-white">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Link
               href="/"
@@ -377,7 +423,6 @@ export default function CategorySlugPage() {
             </span>
           </div>
 
-          {/* Title */}
           <div className="mt-6">
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-600">
               <BookOpen className="h-4 w-4" />
@@ -389,12 +434,13 @@ export default function CategorySlugPage() {
             </h1>
 
             <p className="mt-2 max-w-2xl text-slate-600">
-              {category.description}
+              {category.description ||
+                `Explore books available in ${category.name}.`}
             </p>
 
             <p className="mt-4 text-sm text-slate-500">
               <span className="font-semibold text-slate-900">
-                {categoryBooks.length}
+                {books.length}
               </span>{" "}
               books available
             </p>
@@ -404,20 +450,28 @@ export default function CategorySlugPage() {
 
       {/* Books */}
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        {categoryBooks.length > 0 ? (
+        {books.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-            {categoryBooks.map((book) => {
-              const discount = getDiscount(
-                book.price,
-                book.originalPrice
-              );
+            {books.map((book) => {
+              const originalPrice =
+                Number(
+                  book.compareAtPrice || 0
+                );
+
+              const discount =
+                getDiscount(
+                  book.price,
+                  originalPrice
+                );
 
               const isWishlisted =
-                wishlist.includes(book.id);
+                wishlist.includes(
+                  book._id
+                );
 
               return (
                 <article
-                  key={book.id}
+                  key={book._id}
                   className="group overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
                 >
                   {/* Image */}
@@ -427,15 +481,24 @@ export default function CategorySlugPage() {
                       className="block"
                     >
                       <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden bg-slate-100">
-                        <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
+                        {book.image ? (
+                          <img
+                            src={book.image}
+                            alt={book.title}
+                            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                          />
+                        ) : (
+                          <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
+                        )}
 
-                        <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
-                          {discount}% OFF
-                        </span>
+                        {discount > 0 && (
+                          <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
+                            {discount}% OFF
+                          </span>
+                        )}
                       </div>
                     </Link>
 
-                    {/* Wishlist */}
                     <button
                       type="button"
                       onClick={() =>
@@ -464,7 +527,10 @@ export default function CategorySlugPage() {
                       href={`/books/${book.slug}`}
                     >
                       <p className="text-xs font-medium text-blue-600">
-                        {book.category}
+                        {typeof book.category ===
+                        "object"
+                          ? book.category?.name
+                          : book.category}
                       </p>
 
                       <h2 className="mt-1 line-clamp-2 min-h-[40px] text-sm font-semibold text-slate-900 transition group-hover:text-blue-600">
@@ -476,28 +542,26 @@ export default function CategorySlugPage() {
                       by {book.author}
                     </p>
 
-                    {/* Rating */}
-                    <div className="mt-3 flex items-center gap-1">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-
-                      <span className="text-sm font-semibold text-slate-800">
-                        {book.rating}
-                      </span>
-
-                      <span className="text-xs text-slate-400">
-                        ({book.reviews})
-                      </span>
-                    </div>
-
                     {/* Price */}
                     <div className="mt-3 flex items-center gap-2">
                       <span className="text-lg font-bold text-slate-900">
-                        ₹{book.price}
+                        ₹
+                        {Number(
+                          book.price
+                        ).toLocaleString(
+                          "en-IN"
+                        )}
                       </span>
 
-                      <span className="text-xs text-slate-400 line-through">
-                        ₹{book.originalPrice}
-                      </span>
+                      {originalPrice >
+                        book.price && (
+                        <span className="text-xs text-slate-400 line-through">
+                          ₹
+                          {originalPrice.toLocaleString(
+                            "en-IN"
+                          )}
+                        </span>
+                      )}
                     </div>
 
                     {/* Stock */}
@@ -508,15 +572,18 @@ export default function CategorySlugPage() {
                           : "text-green-600"
                       }`}
                     >
-                      {book.stock <= 10
-                        ? `Only ${book.stock} left`
-                        : "In stock"}
+                      {book.stock <= 0
+                        ? "Out of stock"
+                        : book.stock <= 10
+                          ? `Only ${book.stock} left`
+                          : "In stock"}
                     </p>
 
-                    {/* Add to cart */}
                     <button
                       type="button"
-                      disabled={book.stock <= 0}
+                      disabled={
+                        book.stock <= 0
+                      }
                       onClick={() =>
                         addToCart(book)
                       }
@@ -542,12 +609,13 @@ export default function CategorySlugPage() {
             </h2>
 
             <p className="mt-2 text-sm text-slate-500">
-              There are currently no books available in this category.
+              There are currently no books available
+              in this category.
             </p>
 
             <Link
               href="/books"
-              className="mt-6 inline-flex rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="mt-6 inline-flex rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition"
             >
               Browse All Books
             </Link>
