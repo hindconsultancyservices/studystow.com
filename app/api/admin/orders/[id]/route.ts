@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { getServerSession } from "next-auth";
@@ -38,7 +39,17 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-async function requireAdmin() {
+type AdminAuthResult =
+  | {
+      authorized: true;
+      response?: undefined;
+    }
+  | {
+      authorized: false;
+      response: NextResponse;
+    };
+
+async function requireAdmin(): Promise<AdminAuthResult> {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
@@ -69,7 +80,6 @@ async function requireAdmin() {
 
   return {
     authorized: true,
-    response: null,
   };
 }
 
@@ -83,8 +93,12 @@ function getOrderFilter(id: string) {
   if (mongoose.isValidObjectId(value)) {
     return {
       $or: [
-        { _id: new mongoose.Types.ObjectId(value) },
-        { orderNumber: value },
+        {
+          _id: new mongoose.Types.ObjectId(value),
+        },
+        {
+          orderNumber: value,
+        },
       ],
     };
   }
@@ -104,7 +118,7 @@ function getOrderFilter(id: string) {
 export async function GET(
   request: NextRequest,
   context: RouteContext
-) {
+): Promise<NextResponse> {
   try {
     const auth = await requireAdmin();
 
@@ -147,7 +161,10 @@ export async function GET(
       data: order,
     });
   } catch (error) {
-    console.error("GET /api/admin/orders/[id] error:", error);
+    console.error(
+      "GET /api/admin/orders/[id] error:",
+      error
+    );
 
     return NextResponse.json(
       {
@@ -170,7 +187,7 @@ export async function GET(
 export async function PATCH(
   request: NextRequest,
   context: RouteContext
-) {
+): Promise<NextResponse> {
   try {
     const auth = await requireAdmin();
 
@@ -262,7 +279,10 @@ export async function PATCH(
       data: updatedOrder,
     });
   } catch (error) {
-    console.error("PATCH /api/admin/orders/[id] error:", error);
+    console.error(
+      "PATCH /api/admin/orders/[id] error:",
+      error
+    );
 
     return NextResponse.json(
       {
