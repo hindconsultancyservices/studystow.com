@@ -61,6 +61,7 @@ type Order = {
   orderStatus: OrderStatus;
   createdAt: string;
   updatedAt: string;
+  shippingAddress: ShippingAddress;
 };
 
 type Stats = {
@@ -70,6 +71,18 @@ type Stats = {
   processingOrders: number;
   shippedOrders: number;
   deliveredOrders: number;
+};
+
+type ShippingAddress = {
+  name: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  country: string;
+
 };
 
 type ApiResponse = {

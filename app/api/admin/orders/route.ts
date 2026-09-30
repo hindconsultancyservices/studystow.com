@@ -1,9 +1,51 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
 import Order from "@/models/Order";
+
+type PopulatedCustomer = {
+  _id: unknown;
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
+type PopulatedOrder = {
+  _id: unknown;
+  orderNumber: string;
+  customer?: PopulatedCustomer | null;
+
+  shippingAddress: unknown;
+
+  items: Array<{
+    book?: unknown;
+    title: string;
+    quantity: number;
+    price: number;
+    image?: string;
+  }>;
+
+  subtotal: number;
+  shipping: number;
+  discount: number;
+  tax: number;
+  total: number;
+
+  paymentMethod: string;
+  paymentStatus: string;
+  orderStatus: string;
+
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+
+  notes?: string;
+
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 function getDateRange(value: string | null) {
   if (!value || value === "all") return null;
@@ -164,23 +206,28 @@ export async function GET(request: NextRequest) {
 
     const totalPages = Math.ceil(totalOrders / limit);
 
-    const data = orders.map((order) => ({
-      _id: order._id.toString(),
+    const populatedOrders =
+      orders as unknown as PopulatedOrder[];
+
+    const data = populatedOrders.map((order) => ({
+      _id: String(order._id),
       orderNumber: order.orderNumber,
 
       customer: order.customer
         ? {
-            _id: order.customer._id?.toString(),
-            name: order.customer.name,
-            email: order.customer.email,
-            phone: order.customer.phone,
+            _id: order.customer._id
+              ? String(order.customer._id)
+              : undefined,
+            name: order.customer.name || "",
+            email: order.customer.email || "",
+            phone: order.customer.phone || "",
           }
         : null,
 
       shippingAddress: order.shippingAddress,
 
       items: order.items.map((item) => ({
-        book: item.book?.toString(),
+        book: item.book ? String(item.book) : undefined,
         title: item.title,
         quantity: item.quantity,
         price: item.price,
@@ -214,6 +261,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data,
+
       stats: {
         totalOrders,
         totalRevenue,
@@ -222,6 +270,7 @@ export async function GET(request: NextRequest) {
         shippedOrders,
         deliveredOrders,
       },
+
       pagination: {
         page,
         limit,
@@ -232,7 +281,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("GET /api/admin/orders error:", error);
+    console.error(
+      "GET /api/admin/orders error:",
+      error
+    );
 
     return NextResponse.json(
       {

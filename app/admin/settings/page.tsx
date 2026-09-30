@@ -24,6 +24,7 @@ import {
   Truck,
   UserRound,
   Wrench,
+  LockKeyhole,
 } from "lucide-react";
 
 type SectionId =

@@ -9,11 +9,13 @@ type WishlistButtonProps = {
   bookSlug?: string;
   className?: string;
   showText?: boolean;
+  bookTitle?: string;
 };
 
 export default function WishlistButton({
   bookId,
   bookSlug = "",
+  bookTitle = "",
   className = "",
   showText = true,
 }: WishlistButtonProps) {

@@ -209,7 +209,8 @@ export default async function SearchPage({
                       )}
 
                       <WishlistButton
-                        bookTitle={book.title}
+                          bookId={book.id}
+                          bookTitle={book.title}
                       />
                     </div>
                   </Link>
