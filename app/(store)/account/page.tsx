@@ -23,16 +23,38 @@ type Order = {
 type Address = {
   _id: string;
   label?: string;
-  fullName: string;
+
+  // Backend/order structure
+  name?: string;
+  fullName?: string;
+
   phone: string;
+
   addressLine1: string;
   addressLine2?: string;
+
   city: string;
   state: string;
-  postalCode: string;
+
+  pincode?: string;
+  postalCode?: string;
+
   country?: string;
   isDefault?: boolean;
 };
+
+type ApiResponse<T> = {
+  success?: boolean;
+  message?: string;
+  data?: T;
+};
+
+const ACTIVE_ORDER_STATUSES = [
+  "pending",
+  "confirmed",
+  "processing",
+  "shipped",
+];
 
 export default function AccountPage() {
   const { data: session, status: sessionStatus } = useSession();
@@ -46,125 +68,236 @@ export default function AccountPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (sessionStatus !== "authenticated") return;
+    if (sessionStatus !== "authenticated") {
+      if (sessionStatus === "unauthenticated") {
+        setLoading(false);
+      }
+
+      return;
+    }
 
     let cancelled = false;
 
     async function loadAccount() {
-      setLoading(true);
-      setError("");
-
-      const email = session?.user?.email || "";
-
-      // User info: session se direct
-      if (!cancelled) {
-        setUser({
-          _id: session?.user?.id || "",
-          name: session?.user?.name || "Customer",
-          email,
-          phone: "",
-        });
-      }
-
-      // Orders
       try {
-        if (email) {
-          const userResponse = await fetch(
-            `/api/users?search=${encodeURIComponent(
-              email
-            )}&limit=1`,
+        setLoading(true);
+        setError("");
+
+        const email = session?.user?.email?.trim();
+
+        if (!email) {
+          throw new Error("Your account email could not be found.");
+        }
+
+        /*
+         * ==========================================================
+         * 1. LOAD CURRENT USER FROM MONGODB
+         * ==========================================================
+         */
+
+        const userResponse = await fetch(
+          `/api/users?search=${encodeURIComponent(email)}&limit=1`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
+
+        const userResult: ApiResponse<User[]> =
+          await userResponse.json().catch(() => ({}));
+
+        if (!userResponse.ok || !userResult.success) {
+          throw new Error(
+            userResult.message || "Failed to load your account."
+          );
+        }
+
+        const currentUser = Array.isArray(userResult.data)
+          ? userResult.data[0]
+          : null;
+
+        if (!currentUser?._id) {
+          throw new Error("Your account was not found.");
+        }
+
+        if (cancelled) return;
+
+        const sessionUserName = session?.user?.name;
+
+        setUser({
+          _id: String(currentUser._id),
+          name: currentUser.name || sessionUserName || "Customer",
+          email: currentUser.email || email,
+          phone: currentUser.phone || "",
+        });
+
+        /*
+         * ==========================================================
+         * 2. LOAD ORDERS
+         * ==========================================================
+         */
+
+        try {
+          const ordersResponse = await fetch(
+            `/api/orders?customer=${encodeURIComponent(
+              String(currentUser._id)
+            )}&limit=100`,
             {
+              method: "GET",
               cache: "no-store",
+              headers: {
+                Accept: "application/json",
+                "Cache-Control": "no-cache",
+              },
             }
           );
 
-          if (userResponse.ok) {
-            const userData = await userResponse.json();
+          const ordersResult: ApiResponse<Order[]> =
+            await ordersResponse.json().catch(() => ({}));
 
-            const currentUser = userData?.data?.[0];
-
-            if (currentUser && !cancelled) {
-              setUser(currentUser);
-
-              const ordersResponse = await fetch(
-                `/api/orders?customer=${encodeURIComponent(
-                  currentUser._id
-                )}&limit=100`,
-                {
-                  cache: "no-store",
-                }
-              );
-
-              if (ordersResponse.ok) {
-                const ordersData =
-                  await ordersResponse.json();
-
-                if (!cancelled) {
-                  setOrders(
-                    Array.isArray(ordersData?.data)
-                      ? ordersData.data
-                      : []
-                  );
-                }
-              }
-            }
+          if (!ordersResponse.ok || !ordersResult.success) {
+            throw new Error(
+              ordersResult.message || "Failed to load orders."
+            );
           }
-        }
-      } catch (err) {
-        console.error("Orders loading error:", err);
-
-        if (!cancelled) {
-          setError("Some account data could not be loaded.");
-        }
-      }
-
-      // Addresses independently
-      try {
-        const response = await fetch(
-          "/api/users/me/addresses",
-          {
-            cache: "no-store",
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
 
           if (!cancelled) {
-            setAddresses(
-              Array.isArray(data?.data)
-                ? data.data
-                : Array.isArray(data?.addresses)
-                ? data.addresses
+            setOrders(
+              Array.isArray(ordersResult.data)
+                ? ordersResult.data
                 : []
             );
           }
-        }
-      } catch (err) {
-        console.error("Addresses loading error:", err);
-      }
+        } catch (orderError) {
+          console.error("Account orders error:", orderError);
 
-      // Wishlist
-      try {
-        const raw = localStorage.getItem(
-          "studystow-wishlist"
-        );
-
-        if (raw) {
-          const wishlist = JSON.parse(raw);
-
-          if (!cancelled && Array.isArray(wishlist)) {
-            setWishlistCount(wishlist.length);
+          if (!cancelled) {
+            setOrders([]);
           }
         }
-      } catch {
-        if (!cancelled) {
-          setWishlistCount(0);
-        }
-      }
 
-      if (!cancelled) {
-        setLoading(false);
+        /*
+         * ==========================================================
+         * 3. LOAD ADDRESSES
+         * ==========================================================
+         */
+
+        try {
+          const addressesResponse = await fetch(
+            "/api/users/me/addresses",
+            {
+              method: "GET",
+              cache: "no-store",
+              headers: {
+                Accept: "application/json",
+                "Cache-Control": "no-cache",
+              },
+            }
+          );
+
+          const addressesResult =
+            await addressesResponse.json().catch(() => ({}));
+
+          if (!addressesResponse.ok) {
+            throw new Error(
+              addressesResult?.message ||
+                "Failed to load addresses."
+            );
+          }
+
+          const addressList = Array.isArray(
+            addressesResult?.data
+          )
+            ? addressesResult.data
+            : Array.isArray(addressesResult?.addresses)
+            ? addressesResult.addresses
+            : [];
+
+          if (!cancelled) {
+            setAddresses(addressList);
+          }
+        } catch (addressError) {
+          console.error(
+            "Account addresses error:",
+            addressError
+          );
+
+          if (!cancelled) {
+            setAddresses([]);
+          }
+        }
+
+        /*
+         * ==========================================================
+         * 4. LOAD WISHLIST FROM MONGODB
+         * ==========================================================
+         *
+         * Do NOT use localStorage as the source of truth.
+         */
+
+        try {
+          const wishlistResponse = await fetch(
+            "/api/wishlist",
+            {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+              headers: {
+                Accept: "application/json",
+                "Cache-Control": "no-cache",
+              },
+            }
+          );
+
+          const wishlistResult =
+            await wishlistResponse.json().catch(() => ({}));
+
+          if (!wishlistResponse.ok) {
+            throw new Error(
+              wishlistResult?.message ||
+                "Failed to load wishlist."
+            );
+          }
+
+          const wishlistItems = Array.isArray(
+            wishlistResult?.items
+          )
+            ? wishlistResult.items
+            : Array.isArray(wishlistResult?.data)
+            ? wishlistResult.data
+            : [];
+
+          if (!cancelled) {
+            setWishlistCount(wishlistItems.length);
+          }
+        } catch (wishlistError) {
+          console.error(
+            "Account wishlist error:",
+            wishlistError
+          );
+
+          if (!cancelled) {
+            setWishlistCount(0);
+          }
+        }
+      } catch (err) {
+        console.error("Account loading error:", err);
+
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Some account data could not be loaded."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
@@ -173,46 +306,71 @@ export default function AccountPage() {
     return () => {
       cancelled = true;
     };
-  }, [sessionStatus, session?.user?.email, session?.user?.id, session?.user?.name]);
+  }, [
+    sessionStatus,
+    session?.user?.email,
+    session?.user?.name,
+  ]);
+
+  /*
+   * ==========================================================
+   * DERIVED DATA
+   * ==========================================================
+   */
 
   const activeOrders = useMemo(() => {
     return orders.filter((order) =>
-      [
-        "pending",
-        "confirmed",
-        "processing",
-        "shipped",
-      ].includes(order.orderStatus)
+      ACTIVE_ORDER_STATUSES.includes(order.orderStatus)
     ).length;
   }, [orders]);
 
   const defaultAddress = useMemo(() => {
     return (
-      addresses.find((address) => address.isDefault) ||
+      addresses.find(
+        (address) => address.isDefault === true
+      ) ||
       addresses[0] ||
       null
     );
   }, [addresses]);
 
   const recentOrders = useMemo(() => {
-    return orders.slice(0, 3);
+    return [...orders]
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() -
+          new Date(a.createdAt).getTime()
+      )
+      .slice(0, 3);
   }, [orders]);
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("en-IN", {
+  /*
+   * ==========================================================
+   * HELPERS
+   * ==========================================================
+   */
+
+  function formatDate(date: string) {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "Date unavailable";
+    }
+
+    return parsedDate.toLocaleDateString("en-IN", {
       day: "numeric",
       month: "long",
       year: "numeric",
     });
-  };
+  }
 
-  const formatAmount = (amount: number) => {
+  function formatAmount(amount: number) {
     return `₹${Number(amount || 0).toLocaleString(
       "en-IN"
     )}`;
-  };
+  }
 
-  const statusClass = (status: string) => {
+  function statusClass(status: string) {
     switch (status) {
       case "delivered":
         return "bg-green-100 text-green-700";
@@ -227,10 +385,35 @@ export default function AccountPage() {
       case "cancelled":
         return "bg-red-100 text-red-700";
 
+      case "pending":
+        return "bg-gray-100 text-gray-700";
+
       default:
         return "bg-gray-100 text-gray-700";
     }
-  };
+  }
+
+  function getAddressName(address: Address) {
+    return (
+      address.fullName ||
+      address.name ||
+      "Customer"
+    );
+  }
+
+  function getPincode(address: Address) {
+    return (
+      address.pincode ||
+      address.postalCode ||
+      ""
+    );
+  }
+
+  /*
+   * ==========================================================
+   * SESSION LOADING
+   * ==========================================================
+   */
 
   if (sessionStatus === "loading") {
     return (
@@ -263,6 +446,12 @@ export default function AccountPage() {
     );
   }
 
+  /*
+   * ==========================================================
+   * NOT LOGGED IN
+   * ==========================================================
+   */
+
   if (sessionStatus !== "authenticated") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
@@ -286,19 +475,33 @@ export default function AccountPage() {
     );
   }
 
+  /*
+   * ==========================================================
+   * DISPLAY DATA
+   * ==========================================================
+   */
+
   const displayName =
-    user?.name || session.user?.name || "Customer";
+    user?.name ||
+    session.user?.name ||
+    "Customer";
 
   const displayEmail =
-    user?.email || session.user?.email || "";
+    user?.email ||
+    session.user?.email ||
+    "";
 
-  const initial = displayName.charAt(0).toUpperCase();
+  const initial =
+    displayName.charAt(0).toUpperCase() || "C";
 
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
 
-        {/* Header */}
+        {/* ======================================================
+            HEADER
+            ====================================================== */}
+
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">
             My Account
@@ -309,6 +512,10 @@ export default function AccountPage() {
           </p>
         </div>
 
+        {/* ======================================================
+            ERROR
+            ====================================================== */}
+
         {error && (
           <div className="mb-6 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
             {error}
@@ -317,7 +524,10 @@ export default function AccountPage() {
 
         <div className="grid gap-6 lg:grid-cols-4">
 
-          {/* Sidebar */}
+          {/* ====================================================
+              SIDEBAR
+              ==================================================== */}
+
           <aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3 border-b px-2 pb-5">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
@@ -336,11 +546,12 @@ export default function AccountPage() {
             </div>
 
             <nav className="mt-4 space-y-1">
+
               <Link
                 href="/account"
                 className="block rounded-lg bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-900"
               >
-                Dashboard
+                Account
               </Link>
 
               <Link
@@ -385,10 +596,16 @@ export default function AccountPage() {
             </nav>
           </aside>
 
-          {/* Main */}
+          {/* ====================================================
+              MAIN
+              ==================================================== */}
+
           <section className="lg:col-span-3">
 
-            {/* Stats */}
+            {/* ==================================================
+                STATS
+                ================================================== */}
+
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
               <Link
@@ -458,10 +675,15 @@ export default function AccountPage() {
                   Addresses
                 </p>
               </Link>
+
             </div>
 
-            {/* Recent Orders */}
+            {/* ==================================================
+                RECENT ORDERS
+                ================================================== */}
+
             <div className="mt-6 rounded-xl border bg-white shadow-sm">
+
               <div className="flex items-center justify-between border-b p-6">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">
@@ -484,7 +706,7 @@ export default function AccountPage() {
               {loading ? (
                 <div className="p-8 text-center">
                   <p className="text-sm text-gray-500">
-                    Loading orders...
+                    Loading account data...
                   </p>
                 </div>
               ) : recentOrders.length === 0 ? (
@@ -495,7 +717,7 @@ export default function AccountPage() {
 
                   <Link
                     href="/books"
-                    className="mt-4 inline-block rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white"
+                    className="mt-4 inline-block rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-gray-800"
                   >
                     Browse Books
                   </Link>
@@ -531,19 +753,27 @@ export default function AccountPage() {
                           )}`}
                         >
                           {order.orderStatus
-                            .charAt(0)
-                            .toUpperCase() +
-                            order.orderStatus.slice(1)}
+                            ? order.orderStatus
+                                .charAt(0)
+                                .toUpperCase() +
+                              order.orderStatus.slice(1)
+                            : "Unknown"}
                         </span>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+
             </div>
 
-            {/* Profile + Address */}
+            {/* ==================================================
+                PROFILE + ADDRESS
+                ================================================== */}
+
             <div className="mt-6 grid gap-6 md:grid-cols-2">
+
+              {/* Personal Information */}
 
               <div className="rounded-xl border bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between">
@@ -560,30 +790,44 @@ export default function AccountPage() {
                 </div>
 
                 <div className="mt-5 space-y-4 text-sm">
+
                   <div>
-                    <p className="text-gray-500">Name</p>
+                    <p className="text-gray-500">
+                      Name
+                    </p>
+
                     <p className="mt-1 font-medium text-gray-900">
                       {user?.name || "-"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-gray-500">Email</p>
+                    <p className="text-gray-500">
+                      Email
+                    </p>
+
                     <p className="mt-1 break-all font-medium text-gray-900">
                       {user?.email || "-"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-gray-500">Phone</p>
+                    <p className="text-gray-500">
+                      Phone
+                    </p>
+
                     <p className="mt-1 font-medium text-gray-900">
                       {user?.phone || "Not added"}
                     </p>
                   </div>
+
                 </div>
               </div>
 
+              {/* Default Address */}
+
               <div className="rounded-xl border bg-white p-6 shadow-sm">
+
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-gray-900">
                     Default Address
@@ -599,14 +843,19 @@ export default function AccountPage() {
 
                 {defaultAddress ? (
                   <div className="mt-5 text-sm leading-6 text-gray-600">
+
                     <p className="font-semibold text-gray-900">
-                      {defaultAddress.fullName}
+                      {getAddressName(defaultAddress)}
                     </p>
 
-                    <p>{defaultAddress.addressLine1}</p>
+                    <p>
+                      {defaultAddress.addressLine1}
+                    </p>
 
                     {defaultAddress.addressLine2 && (
-                      <p>{defaultAddress.addressLine2}</p>
+                      <p>
+                        {defaultAddress.addressLine2}
+                      </p>
                     )}
 
                     <p>
@@ -615,11 +864,21 @@ export default function AccountPage() {
                     </p>
 
                     <p>
-                      {defaultAddress.country || "India"} -{" "}
-                      {defaultAddress.postalCode}
+                      {defaultAddress.country ||
+                        "India"}
+
+                      {getPincode(defaultAddress) && (
+                        <>
+                          {" - "}
+                          {getPincode(defaultAddress)}
+                        </>
+                      )}
                     </p>
 
-                    <p>{defaultAddress.phone}</p>
+                    <p>
+                      {defaultAddress.phone}
+                    </p>
+
                   </div>
                 ) : (
                   <div className="mt-5">
@@ -635,12 +894,19 @@ export default function AccountPage() {
                     </Link>
                   </div>
                 )}
+
               </div>
+
             </div>
 
-            {/* Continue Shopping */}
+            {/* ==================================================
+                CONTINUE SHOPPING
+                ================================================== */}
+
             <div className="mt-6 rounded-xl bg-gray-900 p-6 text-white sm:p-8">
+
               <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+
                 <div>
                   <h2 className="text-lg font-semibold">
                     Looking for your next book?
@@ -657,7 +923,9 @@ export default function AccountPage() {
                 >
                   Browse Books
                 </Link>
+
               </div>
+
             </div>
 
           </section>

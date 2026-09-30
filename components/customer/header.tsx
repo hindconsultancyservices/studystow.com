@@ -51,9 +51,7 @@ export default function Header() {
       }
 
       if (!response.ok) {
-        throw new Error(
-          `Cart request failed: ${response.status}`
-        );
+        throw new Error(`Cart request failed: ${response.status}`);
       }
 
       const data: CartResponse = await response.json();
@@ -74,21 +72,14 @@ export default function Header() {
        * Fallback if API doesn't return itemCount.
        */
       if (Array.isArray(data.items)) {
-        const total = data.items.reduce(
-          (sum, item) => {
-            const quantity = Number(
-              item?.quantity ?? 0
-            );
+        const total = data.items.reduce((sum, item) => {
+          const quantity = Number(item?.quantity ?? 0);
 
-            return (
-              sum +
-              (Number.isFinite(quantity) && quantity > 0
-                ? quantity
-                : 0)
-            );
-          },
-          0
-        );
+          return (
+            sum +
+            (Number.isFinite(quantity) && quantity > 0 ? quantity : 0)
+          );
+        }, 0);
 
         setCartCount(total);
         return;
@@ -96,11 +87,7 @@ export default function Header() {
 
       setCartCount(0);
     } catch (error) {
-      console.error(
-        "Failed to load cart count:",
-        error
-      );
-
+      console.error("Failed to load cart count:", error);
       setCartCount(0);
     } finally {
       setCartLoading(false);
@@ -179,17 +166,15 @@ export default function Header() {
             aria-label="Studystow.com"
             className="
               block
-              h-11
-              w-[125px]
+              h-14
+              w-[155px]
               bg-[#155DFC]
               sm:h-20
               sm:w-[220px]
             "
             style={{
-              maskImage:
-                "url('/images/logo/logo.png')",
-              WebkitMaskImage:
-                "url('/images/logo/logo.png')",
+              maskImage: "url('/images/logo/logo.png')",
+              WebkitMaskImage: "url('/images/logo/logo.png')",
               maskRepeat: "no-repeat",
               WebkitMaskRepeat: "no-repeat",
               maskPosition: "left center",
@@ -306,9 +291,7 @@ export default function Header() {
           <Link
             href="/cart"
             aria-label={`Shopping Cart${
-              cartCount > 0
-                ? `, ${cartCount} items`
-                : ""
+              cartCount > 0 ? `, ${cartCount} items` : ""
             }`}
             className="
               relative
@@ -358,16 +341,8 @@ export default function Header() {
               MOBILE ACCOUNT ICON
               ================================================== */}
           <Link
-            href={
-              isLoggedIn
-                ? "/account/profile"
-                : "/login"
-            }
-            aria-label={
-              isLoggedIn
-                ? "Profile"
-                : "Log in"
-            }
+            href={isLoggedIn ? "/account" : "/login"}
+            aria-label={isLoggedIn ? "Account" : "Log in"}
             className="
               flex
               h-9
@@ -402,7 +377,7 @@ export default function Header() {
             />
           ) : isLoggedIn ? (
             <Link
-              href="/account/profile"
+              href="/account"
               className="
                 hidden
                 h-10
@@ -420,7 +395,7 @@ export default function Header() {
               "
             >
               <User className="h-4 w-4" />
-              Profile
+              Account
             </Link>
           ) : (
             <div className="hidden items-center gap-2 sm:flex">

@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
-  FileText,
   MessageSquare,
   Package,
   RefreshCw,
@@ -72,9 +71,17 @@ type Review = {
     | null;
 };
 
+type CustomerStats = {
+  totalCustomers: number;
+  activeCustomers: number;
+  inactiveCustomers: number;
+  newCustomers: number;
+};
+
 type DashboardData = {
   books: Book[];
   customers: Customer[];
+  customerStats: CustomerStats;
   reviews: Review[];
   reviewStats: {
     total: number;
@@ -137,6 +144,13 @@ const EMPTY_REVIEW_STATS = {
   approved: 0,
   rejected: 0,
   averageRating: 0,
+};
+
+const EMPTY_CUSTOMER_STATS = {
+  totalCustomers: 0,
+  activeCustomers: 0,
+  inactiveCustomers: 0,
+  newCustomers: 0,
 };
 
 function formatDate(date: string) {
@@ -228,7 +242,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
   if (!response.ok || data?.success === false) {
     throw new Error(
-      data?.message || `Failed to load dashboard data.`
+      data?.message || "Failed to load dashboard data."
     );
   }
 
@@ -239,6 +253,7 @@ export default function AdminDashboardPage() {
   const [data, setData] = useState<DashboardData>({
     books: [],
     customers: [],
+    customerStats: EMPTY_CUSTOMER_STATS,
     reviews: [],
     reviewStats: EMPTY_REVIEW_STATS,
   });
@@ -258,13 +273,6 @@ export default function AdminDashboardPage() {
           setLoading(true);
         }
 
-        /*
-         * We intentionally fetch a large page because the current
-         * dashboard calculates stock/customer summaries from the
-         * returned records.
-         *
-         * The APIs remain the source of truth.
-         */
         const [
           booksResponse,
           customersResponse,
@@ -290,6 +298,24 @@ export default function AdminDashboardPage() {
         const customers = Array.isArray(customersResponse.data)
           ? customersResponse.data
           : [];
+
+        const customerStats: CustomerStats = {
+          totalCustomers: Number(
+            customersResponse.stats?.totalCustomers ?? 0
+          ),
+
+          activeCustomers: Number(
+            customersResponse.stats?.activeCustomers ?? 0
+          ),
+
+          inactiveCustomers: Number(
+            customersResponse.stats?.inactiveCustomers ?? 0
+          ),
+
+          newCustomers: Number(
+            customersResponse.stats?.newCustomers ?? 0
+          ),
+        };
 
         const reviews = Array.isArray(reviewsResponse.data)
           ? reviewsResponse.data
@@ -322,6 +348,7 @@ export default function AdminDashboardPage() {
         setData({
           books,
           customers,
+          customerStats,
           reviews,
           reviewStats,
         });
@@ -345,9 +372,6 @@ export default function AdminDashboardPage() {
     void loadDashboard();
   }, [loadDashboard]);
 
-  /*
-   * Dashboard statistics
-   */
   const stats = useMemo(() => {
     const totalBooks = data.books.length;
 
@@ -360,7 +384,8 @@ export default function AdminDashboardPage() {
     ).length;
 
     const totalStock = data.books.reduce(
-      (total, book) => total + Math.max(0, Number(book.stock) || 0),
+      (total, book) =>
+        total + Math.max(0, Number(book.stock) || 0),
       0
     );
 
@@ -372,10 +397,6 @@ export default function AdminDashboardPage() {
       (book) => book.stock <= 0
     ).length;
 
-    const activeCustomers = data.customers.filter(
-      (customer) => customer.active
-    ).length;
-
     return {
       totalBooks,
       publishedBooks,
@@ -383,16 +404,15 @@ export default function AdminDashboardPage() {
       totalStock,
       lowStockBooks,
       outOfStockBooks,
-      totalCustomers: data.customers.length,
-      activeCustomers,
+
+      totalCustomers: data.customerStats.totalCustomers,
+      activeCustomers: data.customerStats.activeCustomers,
+
       totalReviews: data.reviewStats.total,
       pendingReviews: data.reviewStats.pending,
     };
   }, [data]);
 
-  /*
-   * Inventory alerts
-   */
   const lowStockBooks = useMemo(() => {
     return [...data.books]
       .filter((book) => book.stock <= 5)
@@ -400,9 +420,6 @@ export default function AdminDashboardPage() {
       .slice(0, 6);
   }, [data.books]);
 
-  /*
-   * Latest customers
-   */
   const recentCustomers = useMemo(() => {
     return [...data.customers]
       .sort(
@@ -413,9 +430,6 @@ export default function AdminDashboardPage() {
       .slice(0, 5);
   }, [data.customers]);
 
-  /*
-   * Latest reviews
-   */
   const recentReviews = useMemo(() => {
     return [...data.reviews]
       .sort(
@@ -517,7 +531,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-xs text-slate-500">
-                {loading ? "Loading..." : `${stats.publishedBooks} published`}
+                {loading
+                  ? "Loading..."
+                  : `${stats.publishedBooks} published`}
               </p>
             </div>
 

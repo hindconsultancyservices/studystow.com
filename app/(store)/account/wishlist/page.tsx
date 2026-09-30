@@ -1,168 +1,352 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
+import { LogOut } from "lucide-react";
+
+type User = {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+};
 
 type WishlistBook = {
   _id?: string;
   id?: string;
-  title: string;
-  slug: string;
+  title?: string;
+  slug?: string;
   author?: string;
-  price: number;
+  price?: number;
   compareAtPrice?: number;
   image?: string;
   stock?: number;
   published?: boolean;
 };
 
+type WishlistResponse = {
+  success?: boolean;
+  message?: string;
+  items?: unknown[];
+};
+
 function getBookId(book: WishlistBook) {
-  return String(book._id ?? book.id ?? "");
+  return String(book._id || book.id || "");
+}
+
+function extractWishlistItems(data: unknown): unknown[] {
+  if (
+    data &&
+    typeof data === "object" &&
+    "items" in data &&
+    Array.isArray((data as { items?: unknown[] }).items)
+  ) {
+    return (data as { items: unknown[] }).items;
+  }
+
+  return [];
+}
+
+function normalizeBook(item: unknown): WishlistBook | null {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  const raw = item as {
+    book?: unknown;
+    _id?: unknown;
+    id?: unknown;
+    title?: unknown;
+    slug?: unknown;
+    author?: unknown;
+    price?: unknown;
+    compareAtPrice?: unknown;
+    image?: unknown;
+    stock?: unknown;
+    published?: unknown;
+  };
+
+  const source =
+    raw.book &&
+    typeof raw.book === "object"
+      ? (raw.book as Record<string, unknown>)
+      : raw;
+
+  const id = String(
+    source._id ||
+      source.id ||
+      raw._id ||
+      raw.id ||
+      ""
+  );
+
+  const title = String(source.title || "").trim();
+  const slug = String(source.slug || "").trim();
+
+  if (!id || !title || !slug) {
+    return null;
+  }
+
+  const price = Number(source.price ?? 0);
+
+  const compareAtPrice =
+    source.compareAtPrice !== undefined &&
+    source.compareAtPrice !== null
+      ? Number(source.compareAtPrice)
+      : undefined;
+
+  const stock =
+    source.stock !== undefined &&
+    source.stock !== null
+      ? Number(source.stock)
+      : 0;
+
+  return {
+    _id: id,
+    title,
+    slug,
+    author: source.author
+      ? String(source.author)
+      : "",
+    price: Number.isFinite(price) ? price : 0,
+    compareAtPrice:
+      compareAtPrice !== undefined &&
+      Number.isFinite(compareAtPrice)
+        ? compareAtPrice
+        : undefined,
+    image: source.image
+      ? String(source.image)
+      : "",
+    stock: Number.isFinite(stock) ? stock : 0,
+    published:
+      source.published !== false,
+  };
 }
 
 export default function WishlistPage() {
   const { data: session, status } = useSession();
 
+  const [user, setUser] = useState<User | null>(null);
   const [books, setBooks] = useState<WishlistBook[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState("");
   const [cartId, setCartId] = useState("");
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  async function loadUser() {
+    const email = session?.user?.email?.trim();
+
+    if (!email) {
+      return;
+    }
+
+    const response = await fetch(
+      `/api/users?search=${encodeURIComponent(
+        email
+      )}&limit=1`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+        },
+      }
+    );
+
+    const data = await response
+      .json()
+      .catch(() => null);
+
+    if (!response.ok || !data?.success) {
+      throw new Error(
+        data?.message ||
+          "Unable to load your account."
+      );
+    }
+
+    const users = Array.isArray(data.data)
+      ? data.data
+      : [];
+
+    if (users[0]?._id) {
+      setUser(users[0]);
+    }
+  }
+
+  async function loadWishlist() {
+    const response = await fetch(
+      "/api/wishlist",
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+        },
+      }
+    );
+
+    const data: WishlistResponse | null =
+      await response
+        .json()
+        .catch(() => null);
+
+    if (response.status === 401) {
+      throw new Error(
+        "Your session has expired. Please login again."
+      );
+    }
+
+    if (!response.ok || !data?.success) {
+      throw new Error(
+        data?.message ||
+          "Unable to load wishlist."
+      );
+    }
+
+    const items = extractWishlistItems(data);
+
+    const normalizedBooks = items
+      .map(normalizeBook)
+      .filter(
+        (
+          book
+        ): book is WishlistBook =>
+          Boolean(book)
+      );
+
+    setBooks(normalizedBooks);
+  }
 
   useEffect(() => {
     if (status !== "authenticated") {
       if (status === "unauthenticated") {
         setLoading(false);
       }
+
       return;
     }
 
-    async function loadWishlist() {
+    let mounted = true;
+
+    async function loadPage() {
       try {
         setLoading(true);
         setError("");
+        setMessage("");
 
-        const response = await fetch("/api/wishlist", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-          },
-        });
+        await Promise.all([
+          loadUser(),
+          loadWishlist(),
+        ]);
+      } catch (loadError) {
+        console.error(
+          "Wishlist loading error:",
+          loadError
+        );
 
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          throw new Error(
-            data?.message || "Unable to load wishlist."
-          );
+        if (!mounted) {
+          return;
         }
 
-        const wishlist: unknown[] = Array.isArray(data?.items)
-          ? data.items
-          : [];
-
-        const formattedBooks: WishlistBook[] = wishlist
-          .map((item: any) => {
-            const book = item?.book || item;
-
-            return {
-              _id: book?._id
-                ? String(book._id)
-                : undefined,
-
-              id: book?.id
-                ? String(book.id)
-                : undefined,
-
-              title: String(book?.title || ""),
-              slug: String(book?.slug || ""),
-              author: String(book?.author || ""),
-
-              price: Number(book?.price || 0),
-
-              compareAtPrice:
-                book?.compareAtPrice !== undefined &&
-                book?.compareAtPrice !== null
-                  ? Number(book.compareAtPrice)
-                  : undefined,
-
-              image: String(book?.image || ""),
-
-              stock:
-                book?.stock !== undefined &&
-                book?.stock !== null
-                  ? Number(book.stock)
-                  : 0,
-
-              published: book?.published !== false,
-            };
-          })
-          .filter(
-            (book) =>
-              Boolean(book.title) &&
-              Boolean(book.slug) &&
-              Boolean(getBookId(book))
-          );
-
-        setBooks(formattedBooks);
-      } catch (loadError) {
         setError(
           loadError instanceof Error
             ? loadError.message
             : "Unable to load wishlist."
         );
+
+        setBooks([]);
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
-    loadWishlist();
-  }, [status]);
+    loadPage();
 
-  async function removeFromWishlist(bookId: string) {
-    if (!bookId) return;
+    return () => {
+      mounted = false;
+    };
+  }, [status, session?.user?.email]);
+
+  async function removeFromWishlist(
+    bookId: string
+  ) {
+    if (!bookId || removingId) {
+      return;
+    }
 
     try {
       setRemovingId(bookId);
       setError("");
       setMessage("");
 
-      const response = await fetch("/api/wishlist", {
-        method: "DELETE",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          bookId,
-        }),
-      });
+      const response = await fetch(
+        "/api/wishlist",
+        {
+          method: "DELETE",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            bookId,
+          }),
+        }
+      );
 
-      const data = await response.json().catch(() => null);
+      const data = await response
+        .json()
+        .catch(() => null);
+
+      if (response.status === 401) {
+        throw new Error(
+          "Your session has expired. Please login again."
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
-          data?.message || "Unable to remove from wishlist."
+          data?.message ||
+            data?.error ||
+            "Unable to remove from wishlist."
         );
       }
 
       setBooks((current) =>
         current.filter(
-          (book) => getBookId(book) !== bookId
+          (book) =>
+            getBookId(book) !== bookId
         )
       );
 
-      window.dispatchEvent(
-        new Event("studystow-wishlist-updated")
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new Event(
+            "studystow-wishlist-updated"
+          )
+        );
+      }
+
+      setMessage(
+        "Book removed from wishlist."
+      );
+    } catch (removeError) {
+      console.error(
+        "Remove wishlist error:",
+        removeError
       );
 
-      setMessage("Removed from wishlist.");
-    } catch (removeError) {
       setError(
         removeError instanceof Error
           ? removeError.message
@@ -174,40 +358,68 @@ export default function WishlistPage() {
   }
 
   async function addToCart(bookId: string) {
-    if (!bookId) return;
+    if (!bookId || cartId) {
+      return;
+    }
 
     try {
       setCartId(bookId);
       setError("");
       setMessage("");
 
-      const response = await fetch("/api/cart", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          bookId,
-          quantity: 1,
-        }),
-      });
+      const response = await fetch(
+        "/api/cart",
+        {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            bookId,
+            quantity: 1,
+          }),
+        }
+      );
 
-      const data = await response.json().catch(() => null);
+      const data = await response
+        .json()
+        .catch(() => null);
 
-      if (!response.ok) {
+      if (response.status === 401) {
         throw new Error(
-          data?.message || "Unable to add book to cart."
+          "Please login to add books to your cart."
         );
       }
 
-      window.dispatchEvent(
-        new Event("studystow-cart-updated")
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Unable to add book to cart."
+        );
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new Event(
+            "studystow-cart-updated"
+          )
+        );
+      }
+
+      setMessage(
+        "Book added to cart."
+      );
+    } catch (cartError) {
+      console.error(
+        "Add to cart error:",
+        cartError
       );
 
-      setMessage("Book added to cart.");
-    } catch (cartError) {
       setError(
         cartError instanceof Error
           ? cartError.message
@@ -223,14 +435,20 @@ export default function WishlistPage() {
       <main className="min-h-screen bg-gray-50">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="animate-pulse">
-            <div className="h-8 w-48 rounded bg-gray-200" />
+            <div className="h-4 w-32 rounded bg-gray-200" />
+            <div className="mt-4 h-8 w-48 rounded bg-gray-200" />
             <div className="mt-3 h-4 w-64 rounded bg-gray-200" />
 
             <div className="mt-8 grid gap-6 lg:grid-cols-4">
               <div className="h-72 rounded-xl bg-gray-200" />
 
               <div className="lg:col-span-3">
-                <div className="h-96 rounded-xl bg-gray-200" />
+                <div className="h-24 rounded-xl bg-gray-200" />
+
+                <div className="mt-6 grid gap-5 sm:grid-cols-2">
+                  <div className="h-96 rounded-xl bg-gray-200" />
+                  <div className="h-96 rounded-xl bg-gray-200" />
+                </div>
               </div>
             </div>
           </div>
@@ -262,14 +480,23 @@ export default function WishlistPage() {
     );
   }
 
-  const displayName = session.user?.name || "Customer";
-  const displayEmail = session.user?.email || "";
-  const initial = displayName.charAt(0).toUpperCase();
+  const displayName =
+    user?.name ||
+    session.user?.name ||
+    "Customer";
+
+  const displayEmail =
+    user?.email ||
+    session.user?.email ||
+    "";
+
+  const initial =
+    displayName.charAt(0).toUpperCase() ||
+    "C";
 
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-
         {/* Header */}
         <div className="mb-8">
           <Link
@@ -302,78 +529,77 @@ export default function WishlistPage() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-4">
-
           {/* Sidebar */}
           <aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-3 border-b px-2 pb-5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
-                {initial}
-              </div>
+  <div className="flex items-center gap-3 border-b px-2 pb-5">
+    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
+      {initial}
+    </div>
 
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-gray-900">
-                  {displayName}
-                </p>
+    <div className="min-w-0">
+      <p className="truncate font-semibold text-gray-900">
+        {displayName}
+      </p>
 
-                <p className="truncate text-xs text-gray-500">
-                  {displayEmail}
-                </p>
-              </div>
-            </div>
+      <p className="truncate text-xs text-gray-500">
+        {displayEmail}
+      </p>
+    </div>
+  </div>
 
-            <nav className="mt-4 space-y-1">
-              <Link
-                href="/account"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                Dashboard
-              </Link>
+  <nav className="mt-4 space-y-1">
+    <Link
+      href="/account"
+      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+    >
+      Account
+    </Link>
 
-              <Link
-                href="/account/orders"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                My Orders
-              </Link>
+    <Link
+      href="/account/orders"
+      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+    >
+      My Orders
+    </Link>
 
-              <Link
-                href="/account/profile"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                My Profile
-              </Link>
+    <Link
+      href="/account/profile"
+      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+    >
+      My Profile
+    </Link>
 
-              <Link
-                href="/account/addresses"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                Addresses
-              </Link>
+    <Link
+      href="/account/addresses"
+      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+    >
+      Addresses
+    </Link>
 
-              <Link
-                href="/account/wishlist"
-                className="block rounded-lg bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-900"
-              >
-                Wishlist
-              </Link>
+    <Link
+      href="/wishlist"
+      className="flex items-center gap-3 rounded-lg bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-900"
+    >
+      Wishlist
+    </Link>
 
-              <button
-                type="button"
-                onClick={() =>
-                  signOut({
-                    callbackUrl: "/login",
-                  })
-                }
-                className="w-full rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
-              >
-                Logout
-              </button>
-            </nav>
-          </aside>
+    <button
+      type="button"
+      onClick={() =>
+        signOut({
+          callbackUrl: "/login",
+        })
+      }
+      className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
+    >
+      <LogOut className="h-4 w-4" />
+      Logout
+    </button>
+  </nav>
+</aside>
 
           {/* Main */}
           <section className="lg:col-span-3">
-
             <div className="rounded-xl border bg-white p-6 shadow-sm sm:p-8">
               <div className="flex items-center justify-between">
                 <div>
@@ -383,7 +609,9 @@ export default function WishlistPage() {
 
                   <p className="mt-1 text-sm text-gray-500">
                     {books.length}{" "}
-                    {books.length === 1 ? "book" : "books"}{" "}
+                    {books.length === 1
+                      ? "book"
+                      : "books"}{" "}
                     in your wishlist
                   </p>
                 </div>
@@ -401,7 +629,8 @@ export default function WishlistPage() {
                 </h2>
 
                 <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
-                  Browse our books and save your favorite books here.
+                  Browse our books and save your
+                  favorite books here.
                 </p>
 
                 <Link
@@ -414,20 +643,37 @@ export default function WishlistPage() {
             ) : (
               <div className="mt-6 grid gap-5 sm:grid-cols-2">
                 {books.map((book) => {
-                  const bookId = getBookId(book);
+                  const bookId =
+                    getBookId(book);
+
+                  const price = Number(
+                    book.price ?? 0
+                  );
+
+                  const compareAtPrice =
+                    Number(
+                      book.compareAtPrice ?? 0
+                    );
 
                   const hasDiscount =
-                    Number(book.compareAtPrice || 0) > book.price;
+                    compareAtPrice > price;
+
+                  const stock = Number(
+                    book.stock ?? 0
+                  );
 
                   const isOutOfStock =
-                    Number(book.stock || 0) <= 0;
+                    !Number.isFinite(stock) ||
+                    stock <= 0;
 
                   return (
                     <article
-                      key={bookId || book.slug}
+                      key={
+                        bookId ||
+                        book.slug
+                      }
                       className="overflow-hidden rounded-xl border bg-white shadow-sm"
                     >
-
                       {/* Image */}
                       <Link
                         href={`/books/${book.slug}`}
@@ -437,8 +683,12 @@ export default function WishlistPage() {
                           {book.image ? (
                             <img
                               src={book.image}
-                              alt={book.title}
+                              alt={
+                                book.title ||
+                                "Book"
+                              }
                               className="h-full w-full object-contain p-5"
+                              loading="lazy"
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center text-sm text-gray-400">
@@ -467,15 +717,18 @@ export default function WishlistPage() {
 
                         <div className="mt-4 flex items-center gap-2">
                           <span className="text-lg font-bold text-gray-900">
-                            ₹{book.price.toLocaleString("en-IN")}
+                            ₹
+                            {price.toLocaleString(
+                              "en-IN"
+                            )}
                           </span>
 
                           {hasDiscount && (
                             <span className="text-sm text-gray-400 line-through">
                               ₹
-                              {Number(
-                                book.compareAtPrice
-                              ).toLocaleString("en-IN")}
+                              {compareAtPrice.toLocaleString(
+                                "en-IN"
+                              )}
                             </span>
                           )}
                         </div>
@@ -486,19 +739,31 @@ export default function WishlistPage() {
                           </p>
                         )}
 
+                        {!isOutOfStock &&
+                          stock <= 5 && (
+                            <p className="mt-2 text-xs font-medium text-orange-600">
+                              Only {stock} left
+                            </p>
+                          )}
+
                         {/* Actions */}
                         <div className="mt-5 flex gap-2">
                           <button
                             type="button"
                             onClick={() =>
-                              removeFromWishlist(bookId)
+                              removeFromWishlist(
+                                bookId
+                              )
                             }
                             disabled={
-                              removingId === bookId
+                              !bookId ||
+                              removingId ===
+                                bookId
                             }
                             className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {removingId === bookId
+                            {removingId ===
+                            bookId
                               ? "Removing..."
                               : "Remove"}
                           </button>
@@ -506,7 +771,9 @@ export default function WishlistPage() {
                           <button
                             type="button"
                             onClick={() =>
-                              addToCart(bookId)
+                              addToCart(
+                                bookId
+                              )
                             }
                             disabled={
                               isOutOfStock ||
@@ -517,7 +784,8 @@ export default function WishlistPage() {
                           >
                             {isOutOfStock
                               ? "Out of Stock"
-                              : cartId === bookId
+                              : cartId ===
+                                bookId
                               ? "Adding..."
                               : "Add to Cart"}
                           </button>

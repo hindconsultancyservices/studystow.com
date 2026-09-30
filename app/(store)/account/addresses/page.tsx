@@ -32,7 +32,7 @@ type AddressForm = {
   isDefault: boolean;
 };
 
-const emptyForm: AddressForm = {
+const createEmptyForm = (): AddressForm => ({
   label: "",
   fullName: "",
   phone: "",
@@ -43,9 +43,9 @@ const emptyForm: AddressForm = {
   postalCode: "",
   country: "India",
   isDefault: false,
-};
+});
 
-function getAddressId(address: Address) {
+function getAddressId(address: Address): string {
   return String(address._id ?? address.id ?? "");
 }
 
@@ -54,32 +54,45 @@ function extractAddresses(value: unknown): Address[] {
     return value as Address[];
   }
 
-  if (
-    value &&
-    typeof value === "object" &&
-    "addresses" in value &&
-    Array.isArray((value as { addresses: unknown }).addresses)
-  ) {
-    return (value as { addresses: Address[] }).addresses;
+  if (!value || typeof value !== "object") {
+    return [];
   }
 
-  if (
-    value &&
-    typeof value === "object" &&
-    "data" in value &&
-    Array.isArray((value as { data: unknown }).data)
-  ) {
-    return (value as { data: Address[] }).data;
+  const objectValue = value as Record<string, unknown>;
+
+  if (Array.isArray(objectValue.addresses)) {
+    return objectValue.addresses as Address[];
+  }
+
+  if (Array.isArray(objectValue.data)) {
+    return objectValue.data as Address[];
   }
 
   return [];
+}
+
+function getApiMessage(
+  value: unknown,
+  fallback: string
+): string {
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const message = (value as Record<string, unknown>).message;
+
+  return typeof message === "string" && message.trim()
+    ? message
+    : fallback;
 }
 
 export default function AddressesPage() {
   const { data: session, status } = useSession();
 
   const [addresses, setAddresses] = useState<Address[]>([]);
-  const [form, setForm] = useState<AddressForm>(emptyForm);
+  const [form, setForm] = useState<AddressForm>(
+    createEmptyForm()
+  );
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,26 +104,94 @@ export default function AddressesPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  async function loadAddresses() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(
+        "/api/users/me/addresses",
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      let data: unknown = null;
+
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          getApiMessage(
+            data,
+            "Unable to load addresses."
+          )
+        );
+      }
+
+      setAddresses(extractAddresses(data));
+    } catch (loadError) {
+      setAddresses([]);
+
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load addresses."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated") {
+      if (status === "unauthenticated") {
+        setLoading(false);
+      }
+
+      return;
+    }
 
     let mounted = true;
 
-    async function loadAddresses() {
+    async function load() {
       try {
         setLoading(true);
         setError("");
 
-        const response = await fetch("/api/users/me/addresses", {
-          method: "GET",
-          cache: "no-store",
-        });
+        const response = await fetch(
+          "/api/users/me/addresses",
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+            },
+          }
+        );
 
-        const data = await response.json();
+        let data: unknown = null;
+
+        try {
+          data = await response.json();
+        } catch {
+          data = null;
+        }
 
         if (!response.ok) {
           throw new Error(
-            data?.message || "Unable to load addresses."
+            getApiMessage(
+              data,
+              "Unable to load addresses."
+            )
           );
         }
 
@@ -134,7 +215,7 @@ export default function AddressesPage() {
       }
     }
 
-    loadAddresses();
+    load();
 
     return () => {
       mounted = false;
@@ -153,14 +234,28 @@ export default function AddressesPage() {
 
   function openAddForm() {
     setEditingId("");
-    setForm(emptyForm);
+    setForm(createEmptyForm());
     setError("");
     setMessage("");
     setShowForm(true);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   function openEditForm(address: Address) {
-    setEditingId(getAddressId(address));
+    const addressId = getAddressId(address);
+
+    if (!addressId) {
+      setError(
+        "This address cannot be edited because its ID is missing."
+      );
+      return;
+    }
+
+    setEditingId(addressId);
 
     setForm({
       label: address.label ?? "",
@@ -186,11 +281,13 @@ export default function AddressesPage() {
   }
 
   function closeForm() {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     setShowForm(false);
     setEditingId("");
-    setForm(emptyForm);
+    setForm(createEmptyForm());
   }
 
   async function handleSubmit(
@@ -223,7 +320,60 @@ export default function AddressesPage() {
       !payload.postalCode ||
       !payload.country
     ) {
-      setError("Please fill in all required address fields.");
+      setError(
+        "Please fill in all required address fields."
+      );
+      return;
+    }
+
+    if (payload.fullName.length > 100) {
+      setError("Full name cannot exceed 100 characters.");
+      return;
+    }
+
+    if (payload.phone.length > 20) {
+      setError("Phone number cannot exceed 20 characters.");
+      return;
+    }
+
+    if (payload.addressLine1.length > 250) {
+      setError(
+        "Address Line 1 cannot exceed 250 characters."
+      );
+      return;
+    }
+
+    if (payload.addressLine2.length > 250) {
+      setError(
+        "Address Line 2 cannot exceed 250 characters."
+      );
+      return;
+    }
+
+    if (payload.city.length > 100) {
+      setError("City cannot exceed 100 characters.");
+      return;
+    }
+
+    if (payload.state.length > 100) {
+      setError("State cannot exceed 100 characters.");
+      return;
+    }
+
+    if (payload.postalCode.length > 20) {
+      setError(
+        "Postal code cannot exceed 20 characters."
+      );
+      return;
+    }
+
+    if (payload.country.length > 100) {
+      setError("Country cannot exceed 100 characters.");
+      return;
+    }
+
+    if (editingId && !getAddressId({ _id: editingId })) {
+      setError("Invalid address ID.");
       return;
     }
 
@@ -231,13 +381,16 @@ export default function AddressesPage() {
       setSaving(true);
 
       const endpoint = editingId
-        ? `/api/users/me/addresses/${encodeURIComponent(editingId)}`
+        ? `/api/users/me/addresses/${encodeURIComponent(
+            editingId
+          )}`
         : "/api/users/me/addresses";
 
       const response = await fetch(endpoint, {
         method: editingId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify(payload),
       });
@@ -251,16 +404,14 @@ export default function AddressesPage() {
       }
 
       if (!response.ok) {
-        const apiMessage =
-          data &&
-          typeof data === "object" &&
-          "message" in data &&
-          typeof (data as { message?: unknown }).message ===
-            "string"
-            ? (data as { message: string }).message
-            : "Unable to save the address.";
-
-        throw new Error(apiMessage);
+        throw new Error(
+          getApiMessage(
+            data,
+            editingId
+              ? "Unable to update the address."
+              : "Unable to add the address."
+          )
+        );
       }
 
       const updatedAddresses = extractAddresses(data);
@@ -268,27 +419,14 @@ export default function AddressesPage() {
       if (updatedAddresses.length > 0) {
         setAddresses(updatedAddresses);
       } else {
-        const refreshedResponse = await fetch(
-          "/api/users/me/addresses",
-          {
-            method: "GET",
-            cache: "no-store",
-          }
-        );
-
-        if (refreshedResponse.ok) {
-          const refreshedData =
-            await refreshedResponse.json();
-
-          setAddresses(extractAddresses(refreshedData));
-        }
+        await loadAddresses();
       }
 
       const wasEditing = Boolean(editingId);
 
       setShowForm(false);
       setEditingId("");
-      setForm(emptyForm);
+      setForm(createEmptyForm());
 
       setMessage(
         wasEditing
@@ -307,13 +445,18 @@ export default function AddressesPage() {
   }
 
   async function handleDelete(addressId: string) {
-    if (!addressId) return;
+    if (!addressId) {
+      setError("Invalid address ID.");
+      return;
+    }
 
     const confirmed = window.confirm(
       "Are you sure you want to remove this address?"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setError("");
     setMessage("");
@@ -326,6 +469,9 @@ export default function AddressesPage() {
         )}`,
         {
           method: "DELETE",
+          headers: {
+            Accept: "application/json",
+          },
         }
       );
 
@@ -338,23 +484,32 @@ export default function AddressesPage() {
       }
 
       if (!response.ok) {
-        const apiMessage =
-          data &&
-          typeof data === "object" &&
-          "message" in data &&
-          typeof (data as { message?: unknown }).message ===
-            "string"
-            ? (data as { message: string }).message
-            : "Unable to delete the address.";
-
-        throw new Error(apiMessage);
+        throw new Error(
+          getApiMessage(
+            data,
+            "Unable to delete the address."
+          )
+        );
       }
 
-      setAddresses((current) =>
-        current.filter(
-          (address) => getAddressId(address) !== addressId
-        )
-      );
+      const updatedAddresses = extractAddresses(data);
+
+      if (updatedAddresses.length > 0) {
+        setAddresses(updatedAddresses);
+      } else {
+        setAddresses((current) =>
+          current.filter(
+            (address) =>
+              getAddressId(address) !== addressId
+          )
+        );
+      }
+
+      if (editingId === addressId) {
+        setShowForm(false);
+        setEditingId("");
+        setForm(createEmptyForm());
+      }
 
       setMessage("Address removed successfully.");
     } catch (deleteError) {
@@ -373,8 +528,9 @@ export default function AddressesPage() {
       <main className="min-h-screen bg-gray-50">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="animate-pulse">
-            <div className="h-8 w-48 rounded bg-gray-200" />
-            <div className="mt-3 h-4 w-64 rounded bg-gray-200" />
+            <div className="h-5 w-32 rounded bg-gray-200" />
+            <div className="mt-5 h-8 w-48 rounded bg-gray-200" />
+            <div className="mt-3 h-4 w-72 rounded bg-gray-200" />
 
             <div className="mt-8 grid gap-6 lg:grid-cols-4">
               <div className="h-72 rounded-xl bg-gray-200" />
@@ -419,7 +575,8 @@ export default function AddressesPage() {
   const displayEmail =
     session.user?.email || "";
 
-  const initial = displayName.charAt(0).toUpperCase();
+  const initial =
+    displayName.charAt(0).toUpperCase() || "C";
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -479,7 +636,7 @@ export default function AddressesPage() {
                 href="/account"
                 className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
               >
-                Dashboard
+                Account
               </Link>
 
               <Link
@@ -504,7 +661,7 @@ export default function AddressesPage() {
               </Link>
 
               <Link
-                href="/account/wishlist"
+                href="/wishlist"
                 className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
               >
                 Wishlist
@@ -526,7 +683,7 @@ export default function AddressesPage() {
 
           {/* Main */}
           <section className="lg:col-span-3">
-            {/* Top */}
+            {/* Summary */}
             <div className="rounded-xl border bg-white p-6 shadow-sm sm:p-8">
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
@@ -548,7 +705,7 @@ export default function AddressesPage() {
                 <button
                   type="button"
                   onClick={openAddForm}
-                  className="w-fit rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800"
+                  className="w-full rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 sm:w-auto"
                 >
                   + Add Address
                 </button>
@@ -558,7 +715,7 @@ export default function AddressesPage() {
             {/* Form */}
             {showForm && (
               <div className="mt-6 rounded-xl border bg-white p-6 shadow-sm sm:p-8">
-                <div className="mb-6 flex items-center justify-between border-b pb-6">
+                <div className="mb-6 flex items-start justify-between gap-4 border-b pb-6">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">
                       {editingId
@@ -575,7 +732,7 @@ export default function AddressesPage() {
                     type="button"
                     onClick={closeForm}
                     disabled={saving}
-                    className="text-sm font-semibold text-gray-600 hover:text-gray-900"
+                    className="shrink-0 text-sm font-semibold text-gray-600 hover:text-gray-900 disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -606,6 +763,7 @@ export default function AddressesPage() {
                         }
                         placeholder="Home"
                         disabled={saving}
+                        maxLength={50}
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
                     </div>
@@ -630,6 +788,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={100}
                         placeholder="Recipient name"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -655,6 +814,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={20}
                         placeholder="Phone number"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -680,6 +840,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={100}
                         placeholder="India"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -705,6 +866,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={250}
                         placeholder="House, street, building"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -729,6 +891,7 @@ export default function AddressesPage() {
                           )
                         }
                         disabled={saving}
+                        maxLength={250}
                         placeholder="Apartment, landmark, area"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -754,6 +917,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={100}
                         placeholder="City"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -779,6 +943,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={100}
                         placeholder="State"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -804,6 +969,7 @@ export default function AddressesPage() {
                         }
                         required
                         disabled={saving}
+                        maxLength={20}
                         placeholder="Postal code"
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
@@ -836,7 +1002,7 @@ export default function AddressesPage() {
                       type="button"
                       onClick={closeForm}
                       disabled={saving}
-                      className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+                      className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:opacity-50"
                     >
                       Cancel
                     </button>
@@ -884,19 +1050,30 @@ export default function AddressesPage() {
                 </div>
               ) : (
                 <div className="grid gap-5 md:grid-cols-2">
-                  {addresses.map((address) => {
-                    const addressId = getAddressId(address);
+                  {addresses.map((address, index) => {
+                    const addressId =
+                      getAddressId(address);
+
+                    /*
+                     * Normally every MongoDB address should have
+                     * an _id. If an old record is missing it,
+                     * use a stable fallback for rendering only.
+                     */
+                    const renderKey =
+                      addressId ||
+                      `address-${index}`;
 
                     return (
                       <article
-                        key={addressId}
+                        key={renderKey}
                         className="rounded-xl border bg-white p-6 shadow-sm"
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
                               <h2 className="text-lg font-semibold text-gray-900">
-                                {address.label || "Address"}
+                                {address.label ||
+                                  "Address"}
                               </h2>
 
                               {address.isDefault && (
@@ -916,18 +1093,25 @@ export default function AddressesPage() {
 
                         <div className="mt-4 space-y-1 text-sm leading-6 text-gray-600">
                           {address.addressLine1 && (
-                            <p>{address.addressLine1}</p>
+                            <p>
+                              {address.addressLine1}
+                            </p>
                           )}
 
                           {address.addressLine2 && (
-                            <p>{address.addressLine2}</p>
+                            <p>
+                              {address.addressLine2}
+                            </p>
                           )}
 
                           {(address.city ||
                             address.state ||
                             address.postalCode) && (
                             <p>
-                              {[address.city, address.state]
+                              {[
+                                address.city,
+                                address.state,
+                              ]
                                 .filter(Boolean)
                                 .join(", ")}
 
@@ -954,7 +1138,8 @@ export default function AddressesPage() {
                             onClick={() =>
                               openEditForm(address)
                             }
-                            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+                            disabled={!addressId}
+                            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Edit
                           </button>
@@ -965,6 +1150,7 @@ export default function AddressesPage() {
                               handleDelete(addressId)
                             }
                             disabled={
+                              !addressId ||
                               deletingId === addressId
                             }
                             className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
