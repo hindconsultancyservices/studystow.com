@@ -13,7 +13,7 @@ async function checkAdmin() {
     return null;
   }
 
-  return session;
+  return session; // Return the session if the user is an admin
 }
 
 function validId(id: string) {
