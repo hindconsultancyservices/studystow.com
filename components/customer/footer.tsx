@@ -48,12 +48,14 @@ export default function Footer() {
           <div>
 
             {/* StudyStow Logo / Brand */}
-            <Link
-              href="/"
-              className="text-2xl font-bold tracking-tight text-white"
-            >
-              StudyStow
-            </Link>
+            {/* StudyStow Logo / Brand */}
+          <Link href="/" className="inline-block">
+           <img
+              src="/images/logo/logo.png"
+              alt="Studystow.com"
+              className="h-16 w-auto object-contain brightness-0 invert"
+            />
+          </Link>
 
             {/* About Description */}
             <p className="mt-4 max-w-sm text-sm leading-6 text-gray-400">

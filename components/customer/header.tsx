@@ -56,8 +56,7 @@ export default function Header() {
         );
       }
 
-      const data: CartResponse =
-        await response.json();
+      const data: CartResponse = await response.json();
 
       /*
        * Prefer server-calculated itemCount.
@@ -67,9 +66,7 @@ export default function Header() {
         typeof data.itemCount === "number" &&
         Number.isFinite(data.itemCount)
       ) {
-        setCartCount(
-          Math.max(0, data.itemCount)
-        );
+        setCartCount(Math.max(0, data.itemCount));
         return;
       }
 
@@ -85,8 +82,7 @@ export default function Header() {
 
             return (
               sum +
-              (Number.isFinite(quantity) &&
-              quantity > 0
+              (Number.isFinite(quantity) && quantity > 0
                 ? quantity
                 : 0)
             );
@@ -133,9 +129,7 @@ export default function Header() {
      * refresh the database cart count.
      */
     function handleVisibilityChange() {
-      if (
-        document.visibilityState === "visible"
-      ) {
+      if (document.visibilityState === "visible") {
         loadCartCount();
       }
     }
@@ -163,15 +157,14 @@ export default function Header() {
     };
   }, [status, session?.user?.id]);
 
-  const isLoggedIn =
-    status === "authenticated";
+  const isLoggedIn = status === "authenticated";
 
   return (
     <header className="sticky top-0 z-50 border-b bg-white">
       {/* ======================================================
-          HEADER CONTAINER
+          HEADER TOP ROW
           ====================================================== */}
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:h-16 sm:gap-4 sm:px-6 lg:px-8">
 
         {/* ====================================================
             LOGO
@@ -181,10 +174,29 @@ export default function Header() {
           className="flex shrink-0 items-center"
           aria-label="StudyStow Home"
         >
-          <img
-            src="/images/logo/logo.png"
-            alt="StudyStow"
-            className="h-10 w-auto object-contain sm:h-11"
+          <span
+            role="img"
+            aria-label="Studystow.com"
+            className="
+              block
+              h-11
+              w-[125px]
+              bg-[#155DFC]
+              sm:h-20
+              sm:w-[220px]
+            "
+            style={{
+              maskImage:
+                "url('/images/logo/logo.png')",
+              WebkitMaskImage:
+                "url('/images/logo/logo.png')",
+              maskRepeat: "no-repeat",
+              WebkitMaskRepeat: "no-repeat",
+              maskPosition: "left center",
+              WebkitMaskPosition: "left center",
+              maskSize: "contain",
+              WebkitMaskSize: "contain",
+            }}
           />
         </Link>
 
@@ -215,20 +227,45 @@ export default function Header() {
         </nav>
 
         {/* ====================================================
-            SEARCH
+            DESKTOP SEARCH
             ==================================================== */}
         <form
           action="/search"
           className="ml-auto hidden w-full max-w-md md:block"
         >
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search
+              className="
+                absolute
+                left-3
+                top-1/2
+                h-4
+                w-4
+                -translate-y-1/2
+                text-slate-400
+              "
+            />
 
             <input
               type="search"
               name="q"
               placeholder="Search books..."
-              className="h-10 w-full rounded-xl border bg-slate-50 pl-10 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white"
+              className="
+                h-10
+                w-full
+                rounded-xl
+                border
+                bg-slate-50
+                pl-10
+                pr-4
+                text-sm
+                text-slate-900
+                outline-none
+                transition
+                placeholder:text-slate-400
+                focus:border-slate-400
+                focus:bg-white
+              "
             />
           </div>
         </form>
@@ -236,13 +273,29 @@ export default function Header() {
         {/* ====================================================
             RIGHT SIDE ACTIONS
             ==================================================== */}
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-0.5 md:ml-0 md:gap-1">
 
-          {/* Wishlist */}
+          {/* ==================================================
+              WISHLIST
+              ================================================== */}
           <Link
             href="/wishlist"
             aria-label="Wishlist"
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+            className="
+              flex
+              h-9
+              w-9
+              items-center
+              justify-center
+              rounded-lg
+              text-slate-600
+              transition
+              hover:bg-slate-50
+              hover:text-slate-900
+              sm:h-10
+              sm:w-10
+              sm:rounded-xl
+            "
           >
             <Heart className="h-5 w-5" />
           </Link>
@@ -257,30 +310,114 @@ export default function Header() {
                 ? `, ${cartCount} items`
                 : ""
             }`}
-            className="relative flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+            className="
+              relative
+              flex
+              h-9
+              w-9
+              items-center
+              justify-center
+              rounded-lg
+              text-slate-600
+              transition
+              hover:bg-slate-50
+              hover:text-slate-900
+              sm:h-10
+              sm:w-10
+              sm:rounded-xl
+            "
           >
             <ShoppingCart className="h-5 w-5" />
 
-            {!cartLoading &&
-              cartCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-black px-1 text-[10px] font-bold leading-none text-white">
-                  {cartCount > 99
-                    ? "99+"
-                    : cartCount}
-                </span>
-              )}
+            {!cartLoading && cartCount > 0 && (
+              <span
+                className="
+                  absolute
+                  -right-0.5
+                  -top-0.5
+                  flex
+                  min-h-5
+                  min-w-5
+                  items-center
+                  justify-center
+                  rounded-full
+                  bg-black
+                  px-1
+                  text-[10px]
+                  font-bold
+                  leading-none
+                  text-white
+                "
+              >
+                {cartCount > 99 ? "99+" : cartCount}
+              </span>
+            )}
           </Link>
 
           {/* ==================================================
-              CUSTOMER AUTH
+              MOBILE ACCOUNT ICON
               ================================================== */}
+          <Link
+            href={
+              isLoggedIn
+                ? "/account/profile"
+                : "/login"
+            }
+            aria-label={
+              isLoggedIn
+                ? "Profile"
+                : "Log in"
+            }
+            className="
+              flex
+              h-9
+              w-9
+              items-center
+              justify-center
+              rounded-lg
+              text-slate-600
+              transition
+              hover:bg-slate-50
+              hover:text-slate-900
+              sm:hidden
+            "
+          >
+            <User className="h-5 w-5" />
+          </Link>
 
+          {/* ==================================================
+              DESKTOP CUSTOMER AUTH
+              ================================================== */}
           {status === "loading" ? (
-            <div className="hidden h-10 w-24 animate-pulse rounded-xl bg-slate-100 sm:block" />
+            <div
+              className="
+                hidden
+                h-10
+                w-24
+                animate-pulse
+                rounded-xl
+                bg-slate-100
+                sm:block
+              "
+            />
           ) : isLoggedIn ? (
             <Link
               href="/account/profile"
-              className="hidden h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 sm:flex"
+              className="
+                hidden
+                h-10
+                items-center
+                gap-2
+                rounded-xl
+                px-3
+                text-sm
+                font-semibold
+                text-slate-700
+                transition
+                hover:bg-slate-50
+                hover:text-slate-900
+                sm:flex
+              "
             >
               <User className="h-4 w-4" />
               Profile
@@ -289,7 +426,23 @@ export default function Header() {
             <div className="hidden items-center gap-2 sm:flex">
               <Link
                 href="/login"
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                className="
+                  inline-flex
+                  h-10
+                  items-center
+                  gap-2
+                  rounded-xl
+                  border
+                  border-slate-200
+                  px-3
+                  text-sm
+                  font-semibold
+                  text-slate-700
+                  transition
+                  hover:border-slate-300
+                  hover:bg-slate-50
+                  hover:text-slate-900
+                "
               >
                 <LogIn className="h-4 w-4" />
                 Log in
@@ -297,7 +450,20 @@ export default function Header() {
 
               <Link
                 href="/register"
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                className="
+                  inline-flex
+                  h-10
+                  items-center
+                  gap-2
+                  rounded-xl
+                  bg-slate-900
+                  px-3
+                  text-sm
+                  font-semibold
+                  text-white
+                  transition
+                  hover:bg-slate-800
+                "
               >
                 <UserPlus className="h-4 w-4" />
                 Register
@@ -310,54 +476,53 @@ export default function Header() {
       {/* ======================================================
           MOBILE SEARCH
           ====================================================== */}
-      <div className="border-t bg-white px-4 py-3 md:hidden sm:px-6">
+      <div
+        className="
+          border-t
+          bg-white
+          px-3
+          py-2.5
+          md:hidden
+        "
+      >
         <form action="/search">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search
+              className="
+                absolute
+                left-3
+                top-1/2
+                h-4
+                w-4
+                -translate-y-1/2
+                text-slate-400
+              "
+            />
 
             <input
               type="search"
               name="q"
               placeholder="Search books..."
-              className="h-10 w-full rounded-xl border bg-slate-50 pl-10 pr-4 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:bg-white"
+              className="
+                h-10
+                w-full
+                rounded-lg
+                border
+                border-slate-200
+                bg-slate-50
+                pl-10
+                pr-4
+                text-sm
+                text-slate-900
+                outline-none
+                transition
+                placeholder:text-slate-400
+                focus:border-slate-400
+                focus:bg-white
+              "
             />
           </div>
         </form>
-      </div>
-
-      {/* ======================================================
-          MOBILE AUTH
-          ====================================================== */}
-      <div className="flex items-center justify-center gap-2 border-t bg-white px-4 py-3 sm:hidden">
-        {status === "loading" ? (
-          <div className="h-9 w-32 animate-pulse rounded-xl bg-slate-100" />
-        ) : isLoggedIn ? (
-          <Link
-            href="/account/profile"
-            className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
-          >
-            <User className="h-4 w-4" />
-            Profile
-          </Link>
-        ) : (
-          <>
-            <Link
-              href="/login"
-              className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700"
-            >
-              <LogIn className="h-4 w-4" />
-              Log in
-            </Link>
-
-            <Link
-              href="/register"
-              className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
-            >
-              <UserPlus className="h-4 w-4" />
-              Register
-            </Link>
-          </>
-        )}
       </div>
     </header>
   );
