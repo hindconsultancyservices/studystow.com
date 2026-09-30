@@ -16,8 +16,7 @@ type RouteContext = {
 };
 
 async function requireAdmin() {
-  const session =
-    await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
 
   if (session?.user?.role !== "admin") {
     return null;
@@ -30,6 +29,9 @@ function validateId(id: string) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
+/* =========================================================
+   GET PAGE
+   ========================================================= */
 export async function GET(
   request: NextRequest,
   context: RouteContext
@@ -80,10 +82,7 @@ export async function GET(
       data: page,
     });
   } catch (error) {
-    console.error(
-      "GET /api/pages/[id] error:",
-      error
-    );
+    console.error("GET /api/pages/[id] error:", error);
 
     return NextResponse.json(
       {
@@ -95,6 +94,9 @@ export async function GET(
   }
 }
 
+/* =========================================================
+   UPDATE PAGE
+   ========================================================= */
 export async function PUT(
   request: NextRequest,
   context: RouteContext
@@ -128,42 +130,53 @@ export async function PUT(
 
     const body = await request.json();
 
-    const title =
-      String(body?.title || "").trim();
+    const title = String(body?.title || "").trim();
 
-    const slug =
-      String(body?.slug || "")
-        .trim()
-        .toLowerCase();
+    const slug = String(body?.slug || "")
+      .trim()
+      .toLowerCase();
 
-    const content =
-      String(body?.content || "");
+    const content = String(body?.content || "");
 
-    const type =
-      String(body?.type || "custom");
+    const type = String(body?.type || "custom");
 
-    const status =
-      String(body?.status || "draft");
+    const status = String(body?.status || "draft");
 
-    const seoTitle =
-      String(body?.seoTitle || "").trim();
+    const seoTitle = String(body?.seoTitle || "").trim();
 
-    const seoDescription =
-      String(body?.seoDescription || "").trim();
+    const seoDescription = String(
+      body?.seoDescription || ""
+    ).trim();
 
-    const noIndex =
-      Boolean(body?.noIndex);
+    const noIndex = Boolean(body?.noIndex);
 
-    if (!title || !slug) {
+    /* =====================================================
+       BASIC VALIDATION
+       ===================================================== */
+
+    if (!title) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Title and slug are required",
+          message: "Page title is required",
         },
         { status: 400 }
       );
     }
+
+    if (!slug) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Page slug is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       VALID TYPES
+       ===================================================== */
 
     const validTypes: PageType[] = [
       "homepage",
@@ -172,11 +185,6 @@ export async function PUT(
       "policy",
       "support",
       "custom",
-    ];
-
-    const validStatuses: PageStatus[] = [
-      "published",
-      "draft",
     ];
 
     if (!validTypes.includes(type as PageType)) {
@@ -188,6 +196,15 @@ export async function PUT(
         { status: 400 }
       );
     }
+
+    /* =====================================================
+       VALID STATUS
+       ===================================================== */
+
+    const validStatuses: PageStatus[] = [
+      "published",
+      "draft",
+    ];
 
     if (
       !validStatuses.includes(
@@ -203,18 +220,25 @@ export async function PUT(
       );
     }
 
+    /* =====================================================
+       NORMALIZE SLUG
+       ===================================================== */
+
     const normalizedSlug =
       slug === "/"
         ? "/"
         : `/${slug.replace(/^\/+|\/+$/g, "")}`;
 
-    const duplicate =
-      await Page.findOne({
-        slug: normalizedSlug,
-        _id: {
-          $ne: id,
-        },
-      }).lean();
+    /* =====================================================
+       CHECK DUPLICATE SLUG
+       ===================================================== */
+
+    const duplicate = await Page.findOne({
+      slug: normalizedSlug,
+      _id: {
+        $ne: id,
+      },
+    }).lean();
 
     if (duplicate) {
       return NextResponse.json(
@@ -227,30 +251,32 @@ export async function PUT(
       );
     }
 
-    const page =
-      await Page.findByIdAndUpdate(
-        id,
-        {
-          $set: {
-            title,
-            slug: normalizedSlug,
-            type: type as PageType,
-            content,
-            status: status as PageStatus,
-            seoTitle:
-              seoTitle || undefined,
-            seoDescription:
-              seoDescription || undefined,
-            noIndex,
-          },
+    /* =====================================================
+       UPDATE PAGE
+       ===================================================== */
+
+    const page = await Page.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          title,
+          slug: normalizedSlug,
+          type: type as PageType,
+          content,
+          status: status as PageStatus,
+          seoTitle: seoTitle || undefined,
+          seoDescription:
+            seoDescription || undefined,
+          noIndex,
         },
-        {
-          new: true,
-          runValidators: true,
-        }
-      )
-        .populate("author", "name email")
-        .lean();
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("author", "name email")
+      .lean();
 
     if (!page) {
       return NextResponse.json(
@@ -267,11 +293,36 @@ export async function PUT(
       message: "Page updated successfully",
       data: page,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error(
       "PUT /api/pages/[id] error:",
       error
     );
+
+    /* Duplicate MongoDB unique index */
+    if (error?.code === 11000) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Another page already uses this slug",
+        },
+        { status: 409 }
+      );
+    }
+
+    /* Mongoose validation error */
+    if (error?.name === "ValidationError") {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            error?.message ||
+            "Page validation failed",
+        },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json(
       {
@@ -283,6 +334,9 @@ export async function PUT(
   }
 }
 
+/* =========================================================
+   DELETE PAGE
+   ========================================================= */
 export async function DELETE(
   request: NextRequest,
   context: RouteContext

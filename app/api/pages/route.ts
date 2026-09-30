@@ -18,6 +18,34 @@ async function requireAdmin() {
   return session;
 }
 
+const validTypes: PageType[] = [
+  "homepage",
+  "static",
+  "legal",
+  "policy",
+  "support",
+  "custom",
+];
+
+const validStatuses: PageStatus[] = [
+  "published",
+  "draft",
+];
+
+function normalizeSlug(slug: string) {
+  const value = slug.trim().toLowerCase();
+
+  if (value === "/") {
+    return "/";
+  }
+
+  return `/${value.replace(/^\/+|\/+$/g, "")}`;
+}
+
+/* =========================================================
+   GET ALL PAGES
+   ========================================================= */
+
 export async function GET(request: NextRequest) {
   try {
     const session = await requireAdmin();
@@ -36,49 +64,31 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
 
+    const pageNumber = Math.max(
+      1,
+      Number(searchParams.get("page") || 1)
+    );
+
+    const limit = Math.min(
+      100,
+      Math.max(
+        1,
+        Number(searchParams.get("limit") || 10)
+      )
+    );
+
     const search =
       searchParams.get("search")?.trim() || "";
 
     const status =
-      searchParams.get("status") || "";
+      searchParams.get("status")?.trim() || "";
 
     const type =
-      searchParams.get("type") || "";
+      searchParams.get("type")?.trim() || "";
 
-    const page = Math.max(
-      Number(searchParams.get("page")) || 1,
-      1
-    );
+    const filter: Record<string, any> = {};
 
-    const limit = Math.min(
-      Math.max(
-        Number(searchParams.get("limit")) || 10,
-        1
-      ),
-      50
-    );
-
-    const filter: Record<string, unknown> = {};
-
-    if (
-      status === "published" ||
-      status === "draft"
-    ) {
-      filter.status = status;
-    }
-
-    if (
-      [
-        "homepage",
-        "static",
-        "legal",
-        "policy",
-        "support",
-        "custom",
-      ].includes(type)
-    ) {
-      filter.type = type;
-    }
+    /* Search */
 
     if (search) {
       filter.$or = [
@@ -103,30 +113,66 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const skip = (page - 1) * limit;
+    /* Status */
+
+    if (
+      status &&
+      status !== "all" &&
+      validStatuses.includes(status as PageStatus)
+    ) {
+      filter.status = status;
+    }
+
+    /* Type */
+
+    if (
+      type &&
+      type !== "all" &&
+      validTypes.includes(type as PageType)
+    ) {
+      filter.type = type;
+    }
+
+    /* =====================================================
+       TOTAL
+       ===================================================== */
+
+    const total = await Page.countDocuments(filter);
+
+    const totalPages =
+      total === 0
+        ? 1
+        : Math.ceil(total / limit);
+
+    const safePage = Math.min(
+      pageNumber,
+      totalPages
+    );
+
+    /* =====================================================
+       FETCH PAGES
+       ===================================================== */
+
+    const pages = await Page.find(filter)
+      .populate("author", "name email")
+      .sort({ updatedAt: -1 })
+      .skip((safePage - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    /* =====================================================
+       STATS
+       ===================================================== */
 
     const [
-      pages,
-      total,
-      totalPages,
+      totalStats,
       published,
       drafts,
     ] = await Promise.all([
-      Page.find(filter)
-        .populate("author", "name email")
-        .sort({ updatedAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-
-      Page.countDocuments(filter),
-
       Page.countDocuments(),
-
       Page.countDocuments({
         status: "published",
       }),
-
       Page.countDocuments({
         status: "draft",
       }),
@@ -138,17 +184,14 @@ export async function GET(request: NextRequest) {
       data: pages,
 
       pagination: {
-        page,
+        page: safePage,
         limit,
         total,
-        totalPages: Math.max(
-          Math.ceil(total / limit),
-          1
-        ),
+        totalPages,
       },
 
       stats: {
-        total: totalPages,
+        total: totalStats,
         published,
         drafts,
       },
@@ -169,6 +212,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/* =========================================================
+   CREATE NEW PAGE
+   ========================================================= */
+
 export async function POST(request: NextRequest) {
   try {
     const session = await requireAdmin();
@@ -187,31 +234,43 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const title =
-      String(body?.title || "").trim();
+    const title = String(
+      body?.title || ""
+    ).trim();
 
-    const slug =
-      String(body?.slug || "")
-        .trim()
-        .toLowerCase();
+    const slug = String(
+      body?.slug || ""
+    )
+      .trim()
+      .toLowerCase();
 
-    const content =
-      String(body?.content || "");
+    const content = String(
+      body?.content || ""
+    );
 
-    const type =
-      String(body?.type || "custom");
+    const type = String(
+      body?.type || "custom"
+    );
 
-    const status =
-      String(body?.status || "draft");
+    const status = String(
+      body?.status || "draft"
+    );
 
-    const seoTitle =
-      String(body?.seoTitle || "").trim();
+    const seoTitle = String(
+      body?.seoTitle || ""
+    ).trim();
 
-    const seoDescription =
-      String(body?.seoDescription || "").trim();
+    const seoDescription = String(
+      body?.seoDescription || ""
+    ).trim();
 
-    const noIndex =
-      Boolean(body?.noIndex);
+    const noIndex = Boolean(
+      body?.noIndex
+    );
+
+    /* =====================================================
+       VALIDATION
+       ===================================================== */
 
     if (!title) {
       return NextResponse.json(
@@ -233,37 +292,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!/^\/?[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*\/?$/.test(slug)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Invalid slug. Use letters, numbers and hyphens only.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const normalizedSlug =
-      slug === "/"
-        ? "/"
-        : `/${slug.replace(/^\/+|\/+$/g, "")}`;
-
-    const validTypes: PageType[] = [
-      "homepage",
-      "static",
-      "legal",
-      "policy",
-      "support",
-      "custom",
-    ];
-
-    const validStatuses: PageStatus[] = [
-      "published",
-      "draft",
-    ];
-
-    if (!validTypes.includes(type as PageType)) {
+    if (
+      !validTypes.includes(
+        type as PageType
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -287,6 +320,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedSlug =
+      normalizeSlug(slug);
+
+    /* =====================================================
+       DUPLICATE SLUG
+       ===================================================== */
+
     const existingPage =
       await Page.findOne({
         slug: normalizedSlug,
@@ -297,13 +337,25 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           message:
-            "A page with this slug already exists",
+            "Another page already uses this slug",
         },
         { status: 409 }
       );
     }
 
-    const authorId = session.user?.id;
+    /* =====================================================
+       AUTHOR
+       ===================================================== */
+
+    const authorId =
+      session.user?.id ||
+      (session.user as {
+        _id?: string;
+      })?._id;
+
+    /* =====================================================
+       CREATE
+       ===================================================== */
 
     const page = await Page.create({
       title,
@@ -311,31 +363,75 @@ export async function POST(request: NextRequest) {
       type: type as PageType,
       content,
       status: status as PageStatus,
-      seoTitle: seoTitle || undefined,
+      seoTitle:
+        seoTitle || undefined,
       seoDescription:
         seoDescription || undefined,
       noIndex,
-      author: authorId || undefined,
+
+      ...(authorId
+        ? {
+            author: authorId,
+          }
+        : {}),
     });
+
+    const populatedPage =
+      await Page.findById(
+        page._id
+      )
+        .populate(
+          "author",
+          "name email"
+        )
+        .lean();
 
     return NextResponse.json(
       {
         success: true,
-        message: "Page created successfully",
-        data: page,
+        message:
+          "Page created successfully",
+        data: populatedPage,
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error(
       "POST /api/pages error:",
       error
     );
 
+    if (error?.code === 11000) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Another page already uses this slug",
+        },
+        { status: 409 }
+      );
+    }
+
+    if (
+      error?.name ===
+      "ValidationError"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            error?.message ||
+            "Page validation failed",
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to create page",
+        message:
+          "Failed to create page",
       },
       { status: 500 }
     );
