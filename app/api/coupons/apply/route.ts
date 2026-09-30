@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
-import Coupon from "@/models/coupon";
+import Coupon from "@/models/Coupon";
 
 export async function POST(request: NextRequest) {
   try {

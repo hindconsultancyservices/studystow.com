@@ -4,7 +4,7 @@ import { z } from "zod";
 import { connectDB } from "@/lib/db";
 import Order from "@/models/Order";
 import Book from "@/models/Book";
-import Coupon from "@/models/coupon";
+import Coupon from "@/models/Coupon";
 
 const orderItemSchema = z.object({
   book: z.string().min(1, "Book ID is required"),
@@ -16,13 +16,13 @@ const orderItemSchema = z.object({
 });
 
 const addressSchema = z.object({
-  fullName: z.string().min(2),
-  phone: z.string().min(7),
-  addressLine1: z.string().min(3),
+  fullName: z.string().min(2, "Full name is required"),
+  phone: z.string().min(7, "Valid phone number is required"),
+  addressLine1: z.string().min(3, "Address is required"),
   addressLine2: z.string().optional().default(""),
-  city: z.string().min(2),
-  state: z.string().min(2),
-  postalCode: z.string().min(3),
+  city: z.string().min(2, "City is required"),
+  state: z.string().min(2, "State is required"),
+  postalCode: z.string().min(3, "Postal code is required"),
   country: z.string().optional().default("India"),
 });
 
@@ -39,15 +39,16 @@ const orderSchema = z.object({
 
   subtotal: z.number().min(0),
   shipping: z.number().min(0).default(0),
-
   discount: z.number().min(0).default(0),
-
-  tax: z.number().min(0).default(0),
-
+  tax: z.number().min(0),
   total: z.number().min(0),
 
-  // Coupon code sent by checkout
-  couponCode: z.string().trim().max(50).optional().default(""),
+  couponCode: z
+    .string()
+    .trim()
+    .max(50)
+    .optional()
+    .default(""),
 
   paymentMethod: z
     .enum(["cod", "razorpay"])
@@ -73,10 +74,30 @@ const orderSchema = z.object({
     ])
     .default("pending"),
 
-  notes: z.string().max(1000).optional().default(""),
+  notes: z
+    .string()
+    .max(1000)
+    .optional()
+    .default(""),
 });
 
+function mapAddress(address: z.infer<typeof addressSchema>) {
+  return {
+    name: address.fullName,
+    phone: address.phone,
+    addressLine1: address.addressLine1,
+    addressLine2: address.addressLine2 || "",
+    city: address.city,
+    state: address.state,
+    pincode: address.postalCode,
+    country: address.country || "India",
+  };
+}
+
+// ============================================================
 // GET /api/orders
+// ============================================================
+
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
@@ -131,7 +152,7 @@ export async function GET(request: NextRequest) {
           },
         },
         {
-          "shippingAddress.fullName": {
+          "shippingAddress.name": {
             $regex: search,
             $options: "i",
           },
@@ -187,7 +208,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ============================================================
 // POST /api/orders
+// ============================================================
+
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
@@ -198,6 +222,11 @@ export async function POST(request: NextRequest) {
       orderSchema.safeParse(body);
 
     if (!validation.success) {
+      console.error(
+        "Order validation error:",
+        validation.error.flatten()
+      );
+
       return NextResponse.json(
         {
           success: false,
@@ -211,10 +240,10 @@ export async function POST(request: NextRequest) {
 
     const data = validation.data;
 
-    /*
-     * Get books from DB.
-     * Client cannot fake book prices.
-     */
+    // --------------------------------------------------------
+    // GET BOOKS FROM DATABASE
+    // --------------------------------------------------------
+
     const bookIds = data.items.map(
       (item) => item.book
     );
@@ -228,7 +257,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           message:
-            "One or more books were not found",
+            "One or more books were not found.",
         },
         { status: 400 }
       );
@@ -240,6 +269,10 @@ export async function POST(request: NextRequest) {
         book,
       ])
     );
+
+    // --------------------------------------------------------
+    // VERIFY PRICE + STOCK
+    // --------------------------------------------------------
 
     let calculatedSubtotal = 0;
 
@@ -253,8 +286,15 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const price = Number(book.price);
         const quantity = item.quantity;
+        const price = Number(book.price || 0);
+        const stock = Number(book.stock || 0);
+
+        if (stock < quantity) {
+          throw new Error(
+            `"${book.title}" has only ${stock} item(s) in stock.`
+          );
+        }
 
         calculatedSubtotal +=
           price * quantity;
@@ -262,7 +302,6 @@ export async function POST(request: NextRequest) {
         return {
           book: book._id,
           title: book.title,
-          slug: book.slug,
           quantity,
           price,
           image: book.image || "",
@@ -275,16 +314,18 @@ export async function POST(request: NextRequest) {
         calculatedSubtotal * 100
       ) / 100;
 
-    const shipping = Number(data.shipping);
-    const tax = Number(data.tax);
+    // --------------------------------------------------------
+    // SHIPPING + TAX
+    // --------------------------------------------------------
 
-    /*
-     * IMPORTANT:
-     * Never trust discount from frontend.
-     * Recalculate coupon on server.
-     */
+    const shipping = Number(data.shipping || 0);
+    const tax = Number(data.tax || 0);
+
+    // --------------------------------------------------------
+    // COUPON
+    // --------------------------------------------------------
+
     let calculatedDiscount = 0;
-
     let coupon = null;
 
     if (data.couponCode) {
@@ -298,7 +339,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            message: "Invalid coupon code",
+            message: "Invalid coupon code.",
           },
           { status: 400 }
         );
@@ -311,7 +352,7 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             message:
-              "This coupon is inactive",
+              "This coupon is inactive.",
           },
           { status: 400 }
         );
@@ -324,7 +365,7 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             message:
-              "This coupon is not active yet",
+              "This coupon is not active yet.",
           },
           { status: 400 }
         );
@@ -337,7 +378,7 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             message:
-              "This coupon has expired",
+              "This coupon has expired.",
           },
           { status: 400 }
         );
@@ -353,7 +394,7 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             message:
-              "Coupon usage limit has been reached",
+              "Coupon usage limit has been reached.",
           },
           { status: 400 }
         );
@@ -403,6 +444,10 @@ export async function POST(request: NextRequest) {
         ) / 100;
     }
 
+    // --------------------------------------------------------
+    // FINAL TOTAL
+    // --------------------------------------------------------
+
     const calculatedTotal =
       calculatedSubtotal +
       shipping +
@@ -413,16 +458,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid order total",
+          message: "Invalid order total.",
         },
         { status: 400 }
       );
     }
 
-    /*
-     * Generate unique order number.
-     */
+    const finalTotal =
+      Math.round(
+        calculatedTotal * 100
+      ) / 100;
+
+    // --------------------------------------------------------
+    // ORDER NUMBER
+    // --------------------------------------------------------
+
     let orderNumber = "";
+    let uniqueOrderNumber = false;
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const random = Math.floor(
@@ -440,24 +492,38 @@ export async function POST(request: NextRequest) {
         });
 
       if (!exists) {
+        uniqueOrderNumber = true;
         break;
       }
     }
 
-    if (!orderNumber) {
+    if (!uniqueOrderNumber) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Unable to generate order number",
+            "Unable to generate order number.",
         },
         { status: 500 }
       );
     }
 
-    /*
-     * Create order.
-     */
+    // --------------------------------------------------------
+    // MAP ADDRESS TO ORDER SCHEMA
+    // --------------------------------------------------------
+
+    const shippingAddress =
+      mapAddress(data.shippingAddress);
+
+    const billingAddress =
+      data.billingAddress
+        ? mapAddress(data.billingAddress)
+        : shippingAddress;
+
+    // --------------------------------------------------------
+    // CREATE ORDER
+    // --------------------------------------------------------
+
     const order = await Order.create({
       orderNumber,
 
@@ -465,12 +531,9 @@ export async function POST(request: NextRequest) {
 
       items: verifiedItems,
 
-      shippingAddress:
-        data.shippingAddress,
+      shippingAddress,
 
-      billingAddress:
-        data.billingAddress ||
-        data.shippingAddress,
+      billingAddress,
 
       subtotal: calculatedSubtotal,
 
@@ -480,7 +543,7 @@ export async function POST(request: NextRequest) {
 
       tax,
 
-      total: calculatedTotal,
+      total: finalTotal,
 
       paymentMethod:
         data.paymentMethod,
@@ -491,12 +554,13 @@ export async function POST(request: NextRequest) {
       orderStatus:
         data.orderStatus,
 
-      notes: data.notes,
+      notes: data.notes || "",
     });
 
-    /*
-     * Reduce stock.
-     */
+    // --------------------------------------------------------
+    // REDUCE STOCK
+    // --------------------------------------------------------
+
     for (const item of verifiedItems) {
       const result =
         await Book.updateOne(
@@ -520,16 +584,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    /*
-     * Coupon usage.
-     *
-     * COD order is already successfully created,
-     * so usage can be consumed here.
-     *
-     * Razorpay payment is still pending, so its
-     * coupon usage should be incremented only
-     * after successful Razorpay verification.
-     */
+    // --------------------------------------------------------
+    // COUPON USAGE
+    // --------------------------------------------------------
+
     if (
       coupon &&
       data.paymentMethod === "cod"
@@ -553,16 +611,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // --------------------------------------------------------
+    // SUCCESS
+    // --------------------------------------------------------
+
     return NextResponse.json(
       {
         success: true,
         message:
-          "Order created successfully",
+          "Order created successfully.",
 
         data: {
           ...order.toObject(),
 
-          // Return verified values
           subtotal:
             calculatedSubtotal,
 
@@ -570,7 +631,7 @@ export async function POST(request: NextRequest) {
             calculatedDiscount,
 
           total:
-            calculatedTotal,
+            finalTotal,
 
           couponCode:
             coupon?.code || "",
@@ -584,11 +645,15 @@ export async function POST(request: NextRequest) {
       error
     );
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to create order.";
+
     return NextResponse.json(
       {
         success: false,
-        message:
-          "Failed to create order",
+        message,
       },
       { status: 500 }
     );

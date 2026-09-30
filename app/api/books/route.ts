@@ -22,7 +22,7 @@ const bookSchema = z.object({
     .max(120)
     .regex(
       /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      "Slug must contain only lowercase letters, numbers and hyphens"
+      "Slug must contain only lowercase letters, numbers and hyphens",
     ),
 
   author: z
@@ -111,7 +111,7 @@ const bookSchema = z.object({
 function errorResponse(
   message: string,
   status = 400,
-  details?: unknown
+  details?: unknown,
 ) {
   return NextResponse.json(
     {
@@ -121,7 +121,7 @@ function errorResponse(
         ? { errors: details }
         : {}),
     },
-    { status }
+    { status },
   );
 }
 
@@ -134,19 +134,25 @@ function isAdmin(session: any) {
 
 /* -------------------------------------------------------
    GET /api/books
+
+   Public:
+   - Published books only
+
+   Admin:
+   - Can access all books
 ------------------------------------------------------- */
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!isAdmin(session)) {
-      return errorResponse("Unauthorized", 401);
-    }
-
     await connectDB();
 
-    const { searchParams } = new URL(request.url);
+    const session =
+      await getServerSession(authOptions);
+
+    const adminUser = isAdmin(session);
+
+    const { searchParams } =
+      new URL(request.url);
 
     const search =
       searchParams.get("search")?.trim() || "";
@@ -163,23 +169,30 @@ export async function GET(request: NextRequest) {
     const page = Math.max(
       Number.parseInt(
         searchParams.get("page") || "1",
-        10
+        10,
       ) || 1,
-      1
+      1,
     );
 
     const limit = Math.min(
       Math.max(
         Number.parseInt(
           searchParams.get("limit") || "20",
-          10
+          10,
         ) || 20,
-        1
+        1,
       ),
-      100
+      100,
     );
 
-    const filter: Record<string, unknown> = {};
+    const filter: Record<
+      string,
+      unknown
+    > = {};
+
+    /* ---------------------------------------------
+       Search
+    --------------------------------------------- */
 
     if (search) {
       filter.$or = [
@@ -210,6 +223,10 @@ export async function GET(request: NextRequest) {
       ];
     }
 
+    /* ---------------------------------------------
+       Category
+    --------------------------------------------- */
+
     if (
       category &&
       mongoose.Types.ObjectId.isValid(category)
@@ -217,13 +234,29 @@ export async function GET(request: NextRequest) {
       filter.category = category;
     }
 
-    if (
-      publishedParam === "true" ||
-      publishedParam === "false"
-    ) {
-      filter.published =
-        publishedParam === "true";
+    /* ---------------------------------------------
+       Published filter
+
+       Admin can request true/false.
+
+       Public users can ONLY see published books.
+    --------------------------------------------- */
+
+    if (adminUser) {
+      if (
+        publishedParam === "true" ||
+        publishedParam === "false"
+      ) {
+        filter.published =
+          publishedParam === "true";
+      }
+    } else {
+      filter.published = true;
     }
+
+    /* ---------------------------------------------
+       Featured filter
+    --------------------------------------------- */
 
     if (
       featuredParam === "true" ||
@@ -233,16 +266,26 @@ export async function GET(request: NextRequest) {
         featuredParam === "true";
     }
 
+    /* ---------------------------------------------
+       Pagination
+    --------------------------------------------- */
+
     const skip = (page - 1) * limit;
+
+    /* ---------------------------------------------
+       Fetch books + total
+    --------------------------------------------- */
 
     const [books, total] =
       await Promise.all([
         Book.find(filter)
           .populate(
             "category",
-            "name slug"
+            "name slug",
           )
-          .sort({ createdAt: -1 })
+          .sort({
+            createdAt: -1,
+          })
           .skip(skip)
           .limit(limit)
           .lean(),
@@ -258,7 +301,7 @@ export async function GET(request: NextRequest) {
         limit,
         total,
         totalPages: Math.ceil(
-          total / limit
+          total / limit,
         ),
         hasNextPage:
           page * limit < total,
@@ -269,22 +312,24 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error(
       "GET /api/books error:",
-      error
+      error,
     );
 
     return errorResponse(
       "Failed to fetch books",
-      500
+      500,
     );
   }
 }
 
 /* -------------------------------------------------------
    POST /api/books
+
+   Admin only
 ------------------------------------------------------- */
 
 export async function POST(
-  request: NextRequest
+  request: NextRequest,
 ) {
   try {
     const session =
@@ -293,7 +338,7 @@ export async function POST(
     if (!isAdmin(session)) {
       return errorResponse(
         "Unauthorized",
-        401
+        401,
       );
     }
 
@@ -306,7 +351,7 @@ export async function POST(
     } catch {
       return errorResponse(
         "Invalid JSON request body",
-        400
+        400,
       );
     }
 
@@ -317,26 +362,30 @@ export async function POST(
       return errorResponse(
         "Invalid book data",
         422,
-        parsed.error.flatten()
+        parsed.error.flatten(),
       );
     }
 
     const data = parsed.data;
 
-    /* Category ObjectId validation */
+    /* ---------------------------------------------
+       Category ObjectId validation
+    --------------------------------------------- */
 
     if (
       !mongoose.Types.ObjectId.isValid(
-        data.category
+        data.category,
       )
     ) {
       return errorResponse(
         "Invalid category selected",
-        422
+        422,
       );
     }
 
-    /* Category existence */
+    /* ---------------------------------------------
+       Category existence
+    --------------------------------------------- */
 
     const category =
       await Category.findOne({
@@ -347,11 +396,13 @@ export async function POST(
     if (!category) {
       return errorResponse(
         "Selected category was not found or is inactive",
-        422
+        422,
       );
     }
 
-    /* Price validation */
+    /* ---------------------------------------------
+       Price validation
+    --------------------------------------------- */
 
     if (
       data.compareAtPrice !== undefined &&
@@ -359,18 +410,24 @@ export async function POST(
     ) {
       return errorResponse(
         "Compare-at price cannot be lower than the selling price",
-        422
+        422,
       );
     }
 
-    /* Duplicate validation */
+    /* ---------------------------------------------
+       Duplicate validation
+    --------------------------------------------- */
 
     const duplicateQueries: Record<
       string,
       unknown
     >[] = [
-      { slug: data.slug },
-      { sku: data.sku },
+      {
+        slug: data.slug,
+      },
+      {
+        sku: data.sku.toUpperCase(),
+      },
     ];
 
     if (data.isbn) {
@@ -387,36 +444,55 @@ export async function POST(
     if (existingBook) {
       return errorResponse(
         "A book with the same slug, SKU or ISBN already exists",
-        409
+        409,
       );
     }
 
-    /* Create book */
+    /* ---------------------------------------------
+       Create book
+    --------------------------------------------- */
 
-    const book = await Book.create({
-      title: data.title,
-      slug: data.slug,
-      author: data.author,
-      description: data.description,
-      category: new mongoose.Types.ObjectId(
-        data.category
-      ),
-      price: data.price,
-      compareAtPrice:
-        data.compareAtPrice,
-      stock: data.stock,
-      sku: data.sku.toUpperCase(),
-      isbn: data.isbn || undefined,
-      image: data.image || undefined,
-      images: data.images || [],
-      publisher:
-        data.publisher || undefined,
-      language:
-        data.language || "English",
-      pages: data.pages,
-      featured: data.featured,
-      published: data.published,
-    });
+    const book =
+      await Book.create({
+        title: data.title,
+        slug: data.slug,
+        author: data.author,
+        description: data.description,
+
+        category:
+          new mongoose.Types.ObjectId(
+            data.category,
+          ),
+
+        price: data.price,
+        compareAtPrice:
+          data.compareAtPrice,
+
+        stock: data.stock,
+
+        sku: data.sku.toUpperCase(),
+
+        isbn:
+          data.isbn || undefined,
+
+        image:
+          data.image || undefined,
+
+        images:
+          data.images || [],
+
+        publisher:
+          data.publisher || undefined,
+
+        language:
+          data.language || "English",
+
+        pages: data.pages,
+
+        featured: data.featured,
+
+        published: data.published,
+      });
 
     return NextResponse.json(
       {
@@ -425,30 +501,33 @@ export async function POST(
           "Book created successfully",
         data: book,
       },
-      { status: 201 }
+      {
+        status: 201,
+      },
     );
   } catch (error: any) {
     console.error(
       "POST /api/books error:",
-      error
+      error,
     );
 
-    if (
-      error?.code === 11000
-    ) {
+    /* Duplicate key */
+    if (error?.code === 11000) {
       return errorResponse(
         "A book with the same unique value already exists",
-        409
+        409,
       );
     }
 
+    /* Mongoose validation */
     if (
-      error instanceof mongoose.Error.ValidationError
+      error instanceof
+      mongoose.Error.ValidationError
     ) {
       return errorResponse(
         "Book validation failed",
         422,
-        error.errors
+        error.errors,
       );
     }
 
@@ -463,7 +542,7 @@ export async function POST(
                 ? error.message
                 : String(error),
           }
-        : undefined
+        : undefined,
     );
   }
 }

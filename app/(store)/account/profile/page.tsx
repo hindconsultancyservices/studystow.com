@@ -1,10 +1,105 @@
+"use client";
+
 import Link from "next/link";
+import { signOut, useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
+
+type User = {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+};
 
 export default function ProfilePage() {
+  const { data: session, status } = useSession();
+
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+
+    const loadUser = async () => {
+      try {
+        const email = session.user?.email;
+
+        if (!email) return;
+
+        const response = await fetch(
+          `/api/users?search=${encodeURIComponent(email)}&limit=1`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        const data = await response.json();
+
+        if (response.ok && data.success && data.data?.[0]) {
+          setUser(data.data[0]);
+        }
+      } catch (error) {
+        console.error("Profile loading error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUser();
+  }, [status, session?.user?.email]);
+
+  if (status === "loading" || loading) {
+    return (
+      <main className="min-h-screen bg-gray-50">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="animate-pulse">
+            <div className="h-4 w-32 rounded bg-gray-200" />
+            <div className="mt-4 h-8 w-48 rounded bg-gray-200" />
+            <div className="mt-8 grid gap-6 lg:grid-cols-4">
+              <div className="h-72 rounded-xl bg-gray-200" />
+              <div className="h-96 rounded-xl bg-gray-200 lg:col-span-3" />
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (status !== "authenticated") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md rounded-xl border bg-white p-8 text-center shadow-sm">
+          <h1 className="text-xl font-bold text-gray-900">
+            Please login
+          </h1>
+
+          <p className="mt-2 text-sm text-gray-500">
+            Login to access your profile.
+          </p>
+
+          <Link
+            href="/login"
+            className="mt-6 inline-block rounded-lg bg-gray-900 px-5 py-3 text-sm font-semibold text-white hover:bg-gray-800"
+          >
+            Login
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  const displayName =
+    user?.name || session.user?.name || "Customer";
+
+  const displayEmail =
+    user?.email || session.user?.email || "";
+
+  const initial = displayName.charAt(0).toUpperCase();
+
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Page Header */}
+        {/* Header */}
         <div className="mb-8">
           <Link
             href="/account"
@@ -22,31 +117,31 @@ export default function ProfilePage() {
           </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Profile Sidebar */}
-          <aside className="h-fit rounded-xl border bg-white p-6 shadow-sm">
-            <div className="flex flex-col items-center text-center">
-              {/* Avatar */}
-              <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-900 text-3xl font-bold text-white">
-                C
+        <div className="grid gap-6 lg:grid-cols-4">
+          {/* Same Account Sidebar */}
+          <aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3 border-b px-2 pb-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
+                {initial}
               </div>
 
-              <h2 className="mt-4 text-lg font-semibold text-gray-900">
-                Customer Name
-              </h2>
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-gray-900">
+                  {displayName}
+                </p>
 
-              <p className="mt-1 text-sm text-gray-500">
-                customer@example.com
-              </p>
+                <p className="truncate text-xs text-gray-500">
+                  {displayEmail}
+                </p>
+              </div>
             </div>
 
-            {/* Account Navigation */}
-            <nav className="mt-6 space-y-1 border-t pt-5">
+            <nav className="mt-4 space-y-1">
               <Link
                 href="/account"
                 className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
               >
-                Account Dashboard
+                Dashboard
               </Link>
 
               <Link
@@ -60,7 +155,7 @@ export default function ProfilePage() {
                 href="/account/profile"
                 className="block rounded-lg bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-900"
               >
-                Profile
+                My Profile
               </Link>
 
               <Link
@@ -76,11 +171,24 @@ export default function ProfilePage() {
               >
                 Wishlist
               </Link>
+
+              <button
+                type="button"
+                onClick={() =>
+                  signOut({
+                    callbackUrl: "/login",
+                  })
+                }
+                className="w-full rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
+              >
+                Logout
+              </button>
             </nav>
           </aside>
 
-          {/* Profile Form */}
-          <section className="lg:col-span-2">
+          {/* Main */}
+          <section className="lg:col-span-3">
+            {/* Personal Information */}
             <div className="rounded-xl border bg-white p-6 shadow-sm sm:p-8">
               <div className="mb-6 border-b pb-6">
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -88,115 +196,50 @@ export default function ProfilePage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  Update your personal details below.
+                  Your account information.
                 </p>
               </div>
 
-              <form className="space-y-6">
-                {/* Name */}
-                <div className="grid gap-6 sm:grid-cols-2">
-                  <div>
-                    <label
-                      htmlFor="firstName"
-                      className="mb-2 block text-sm font-medium text-gray-700"
-                    >
-                      First Name
-                    </label>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div>
+                  <p className="text-sm text-gray-500">
+                    Full Name
+                  </p>
 
-                    <input
-                      id="firstName"
-                      name="firstName"
-                      type="text"
-                      defaultValue="Customer"
-                      className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-                      placeholder="Enter first name"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="lastName"
-                      className="mb-2 block text-sm font-medium text-gray-700"
-                    >
-                      Last Name
-                    </label>
-
-                    <input
-                      id="lastName"
-                      name="lastName"
-                      type="text"
-                      defaultValue="Name"
-                      className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-                      placeholder="Enter last name"
-                    />
-                  </div>
+                  <p className="mt-1 font-medium text-gray-900">
+                    {user?.name || session.user?.name || "-"}
+                  </p>
                 </div>
 
-                {/* Email */}
                 <div>
-                  <label
-                    htmlFor="email"
-                    className="mb-2 block text-sm font-medium text-gray-700"
-                  >
+                  <p className="text-sm text-gray-500">
                     Email Address
-                  </label>
+                  </p>
 
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    defaultValue="customer@example.com"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-                    placeholder="Enter email address"
-                  />
+                  <p className="mt-1 break-all font-medium text-gray-900">
+                    {displayEmail || "-"}
+                  </p>
                 </div>
 
-                {/* Phone */}
                 <div>
-                  <label
-                    htmlFor="phone"
-                    className="mb-2 block text-sm font-medium text-gray-700"
-                  >
+                  <p className="text-sm text-gray-500">
                     Phone Number
-                  </label>
+                  </p>
 
-                  <input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    defaultValue="+91 98765 43210"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-                    placeholder="Enter phone number"
-                  />
+                  <p className="mt-1 font-medium text-gray-900">
+                    {user?.phone || "Not added"}
+                  </p>
                 </div>
+              </div>
 
-                {/* Date of Birth */}
-                <div>
-                  <label
-                    htmlFor="dob"
-                    className="mb-2 block text-sm font-medium text-gray-700"
-                  >
-                    Date of Birth
-                  </label>
-
-                  <input
-                    id="dob"
-                    name="dob"
-                    type="date"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-                  />
-                </div>
-
-                {/* Save */}
-                <div className="flex justify-end border-t pt-6">
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
-                  >
-                    Save Changes
-                  </button>
-                </div>
-              </form>
+              <div className="mt-6 border-t pt-6">
+                <Link
+                  href="/account"
+                  className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
+                >
+                  Back to Account
+                </Link>
+              </div>
             </div>
 
             {/* Change Password */}
@@ -207,71 +250,13 @@ export default function ProfilePage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  Keep your account secure by using a strong password.
+                  Password change will be available here.
                 </p>
               </div>
 
-              <form className="space-y-5">
-                <div>
-                  <label
-                    htmlFor="currentPassword"
-                    className="mb-2 block text-sm font-medium text-gray-700"
-                  >
-                    Current Password
-                  </label>
-
-                  <input
-                    id="currentPassword"
-                    name="currentPassword"
-                    type="password"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
-                    placeholder="Enter current password"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="newPassword"
-                    className="mb-2 block text-sm font-medium text-gray-700"
-                  >
-                    New Password
-                  </label>
-
-                  <input
-                    id="newPassword"
-                    name="newPassword"
-                    type="password"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
-                    placeholder="Enter new password"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="confirmPassword"
-                    className="mb-2 block text-sm font-medium text-gray-700"
-                  >
-                    Confirm New Password
-                  </label>
-
-                  <input
-                    id="confirmPassword"
-                    name="confirmPassword"
-                    type="password"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
-                    placeholder="Confirm new password"
-                  />
-                </div>
-
-                <div className="flex justify-end border-t pt-5">
-                  <button
-                    type="submit"
-                    className="rounded-lg border border-gray-300 bg-white px-6 py-3 text-sm font-semibold text-gray-900 transition hover:bg-gray-50"
-                  >
-                    Update Password
-                  </button>
-                </div>
-              </form>
+              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+                Password management is not connected yet.
+              </div>
             </div>
           </section>
         </div>

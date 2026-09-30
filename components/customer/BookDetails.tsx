@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Heart,
   ShoppingCart,
@@ -35,111 +36,113 @@ type Book = {
   images?: string[];
 };
 
-type CartItem = {
-  id: string;
-  title: string;
-  slug: string;
-  author: string;
-  category: string;
-  price: number;
-  originalPrice: number;
-  stock: number;
-  image?: string;
-  quantity: number;
-};
-
 type BookDetailsProps = {
   book: Book;
 };
 
-const WISHLIST_KEY = "studystow-wishlist";
-const CART_KEY = "studystow-cart";
+export default function BookDetails({ book }: BookDetailsProps) {
+  const router = useRouter();
 
-export default function BookDetails({
-  book,
-}: BookDetailsProps) {
   const [quantity, setQuantity] = useState(1);
 
-  const [isWishlisted, setIsWishlisted] =
-    useState(false);
+  const [isWishlisted, setIsWishlisted] = useState(false);
 
-  const [cartMessage, setCartMessage] =
-    useState("");
+  const [cartMessage, setCartMessage] = useState("");
+  const [wishlistMessage, setWishlistMessage] = useState("");
 
-  const [wishlistMessage, setWishlistMessage] =
-    useState("");
+  const [cartLoading, setCartLoading] = useState(false);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
+  const [buyNowLoading, setBuyNowLoading] = useState(false);
 
+  /*
+   * CHECK WISHLIST FROM MONGODB
+   */
   useEffect(() => {
-    try {
-      const savedWishlist =
-        localStorage.getItem(WISHLIST_KEY);
+    let cancelled = false;
 
-      if (!savedWishlist) return;
+    async function checkWishlist() {
+      try {
+        const response = await fetch("/api/wishlist", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
 
-      const wishlist = JSON.parse(savedWishlist);
+        if (response.status === 401) {
+          if (!cancelled) {
+            setIsWishlisted(false);
+          }
+          return;
+        }
 
-      if (Array.isArray(wishlist)) {
-        setIsWishlisted(
-          wishlist.some(
-            (item: { id: string }) =>
-              item.id === book.id
-          )
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok || !data?.success) {
+          return;
+        }
+
+        const items = Array.isArray(data.items) ? data.items : [];
+
+        const exists = items.some(
+          (item: { id?: string; _id?: string }) =>
+            String(item.id || item._id) === String(book.id)
         );
+
+        if (!cancelled) {
+          setIsWishlisted(exists);
+        }
+      } catch (error) {
+        console.error("Failed to check wishlist:", error);
       }
-    } catch (error) {
-      console.error(
-        "Failed to load wishlist:",
-        error
-      );
     }
+
+    checkWishlist();
+
+    return () => {
+      cancelled = true;
+    };
   }, [book.id]);
 
-  function addToCart() {
+  /*
+   * ADD TO CART
+   */
+  async function addToCart() {
+    if (book.stock <= 0 || cartLoading || buyNowLoading) return;
+
+    setCartLoading(true);
+    setCartMessage("");
+
     try {
-      const savedCart =
-        localStorage.getItem(CART_KEY);
-
-      const cart: CartItem[] = savedCart
-        ? JSON.parse(savedCart)
-        : [];
-
-      const existingIndex = cart.findIndex(
-        (item) => item.id === book.id
-      );
-
-      if (existingIndex >= 0) {
-        const newQuantity =
-          cart[existingIndex].quantity + quantity;
-
-        cart[existingIndex].quantity = Math.min(
-          newQuantity,
-          book.stock
-        );
-
-        cart[existingIndex].price = book.price;
-        cart[existingIndex].originalPrice =
-          book.originalPrice;
-        cart[existingIndex].stock = book.stock;
-        cart[existingIndex].image = book.image;
-      } else {
-        cart.push({
-          id: book.id,
-          title: book.title,
-          slug: book.slug,
-          author: book.author,
-          category: book.category.name,
-          price: book.price,
-          originalPrice: book.originalPrice,
-          stock: book.stock,
-          image: book.image,
+      const response = await fetch("/api/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          bookId: book.id,
           quantity,
-        });
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 401) {
+        router.push(
+          `/login?callbackUrl=${encodeURIComponent(
+            `/books/${book.slug}`
+          )}`
+        );
+        return;
       }
 
-      localStorage.setItem(
-        CART_KEY,
-        JSON.stringify(cart)
-      );
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Failed to add book to cart."
+        );
+      }
 
       setCartMessage(
         `${quantity} ${
@@ -147,69 +150,121 @@ export default function BookDetails({
         } added to cart.`
       );
 
+      window.dispatchEvent(
+        new Event("studystow-cart-updated")
+      );
+
       setTimeout(() => {
         setCartMessage("");
       }, 2500);
     } catch (error) {
-      console.error(
-        "Failed to add book to cart:",
-        error
+      console.error("Failed to add book to cart:", error);
+
+      setCartMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to add book to cart."
       );
+
+      setTimeout(() => {
+        setCartMessage("");
+      }, 3000);
+    } finally {
+      setCartLoading(false);
     }
   }
 
-  function toggleWishlist() {
+  /*
+   * TOGGLE WISHLIST - MONGODB
+   */
+  async function toggleWishlist() {
+    if (wishlistLoading) return;
+
+    setWishlistLoading(true);
+    setWishlistMessage("");
+
     try {
-      const savedWishlist =
-        localStorage.getItem(WISHLIST_KEY);
+      /*
+       * REMOVE FROM WISHLIST
+       */
+      if (isWishlisted) {
+        const response = await fetch("/api/wishlist", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            bookId: book.id,
+          }),
+        });
 
-      const wishlist = savedWishlist
-        ? JSON.parse(savedWishlist)
-        : [];
+        const data = await response.json().catch(() => null);
 
-      if (!Array.isArray(wishlist)) return;
+        if (response.status === 401) {
+          router.push(
+            `/login?callbackUrl=${encodeURIComponent(
+              `/books/${book.slug}`
+            )}`
+          );
+          return;
+        }
 
-      const exists = wishlist.some(
-        (item: { id: string }) =>
-          item.id === book.id
-      );
-
-      let updatedWishlist;
-
-      if (exists) {
-        updatedWishlist = wishlist.filter(
-          (item: { id: string }) =>
-            item.id !== book.id
-        );
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              "Failed to remove from wishlist."
+          );
+        }
 
         setIsWishlisted(false);
-        setWishlistMessage(
-          "Removed from wishlist."
-        );
-      } else {
-        updatedWishlist = [
-          ...wishlist,
-          {
-            id: book.id,
-            title: book.title,
-            slug: book.slug,
-            author: book.author,
-            price: book.price,
-            compareAtPrice:
-              book.originalPrice,
-            image: book.image,
-          },
-        ];
-
-        setIsWishlisted(true);
-        setWishlistMessage(
-          "Added to wishlist."
-        );
+        setWishlistMessage("Removed from wishlist.");
       }
 
-      localStorage.setItem(
-        WISHLIST_KEY,
-        JSON.stringify(updatedWishlist)
+      /*
+       * ADD TO WISHLIST
+       */
+      else {
+        const response = await fetch("/api/wishlist", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            bookId: book.id,
+          }),
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (response.status === 401) {
+          router.push(
+            `/login?callbackUrl=${encodeURIComponent(
+              `/books/${book.slug}`
+            )}`
+          );
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              "Failed to add to wishlist."
+          );
+        }
+
+        setIsWishlisted(true);
+        setWishlistMessage("Added to wishlist.");
+      }
+
+      /*
+       * Notify account/header/wishlist components
+       */
+      window.dispatchEvent(
+        new Event("studystow-wishlist-updated")
       );
 
       setTimeout(() => {
@@ -220,52 +275,83 @@ export default function BookDetails({
         "Failed to update wishlist:",
         error
       );
+
+      setWishlistMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to update wishlist."
+      );
+
+      setTimeout(() => {
+        setWishlistMessage("");
+      }, 3000);
+    } finally {
+      setWishlistLoading(false);
     }
   }
 
-  function buyNow() {
+  /*
+   * BUY NOW
+   */
+  async function buyNow() {
+    if (book.stock <= 0 || cartLoading || buyNowLoading) {
+      return;
+    }
+
+    setBuyNowLoading(true);
+    setCartMessage("");
+
     try {
-      const savedCart =
-        localStorage.getItem(CART_KEY);
+      const response = await fetch("/api/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          bookId: book.id,
+          quantity,
+        }),
+      });
 
-      const cart: CartItem[] = savedCart
-        ? JSON.parse(savedCart)
-        : [];
+      const data = await response.json().catch(() => null);
 
-      const existingIndex = cart.findIndex(
-        (item) => item.id === book.id
-      );
-
-      const cartBook: CartItem = {
-        id: book.id,
-        title: book.title,
-        slug: book.slug,
-        author: book.author,
-        category: book.category.name,
-        price: book.price,
-        originalPrice: book.originalPrice,
-        stock: book.stock,
-        image: book.image,
-        quantity,
-      };
-
-      if (existingIndex >= 0) {
-        cart[existingIndex] = cartBook;
-      } else {
-        cart.push(cartBook);
+      if (response.status === 401) {
+        router.push(
+          `/login?callbackUrl=${encodeURIComponent(
+            `/books/${book.slug}`
+          )}`
+        );
+        return;
       }
 
-      localStorage.setItem(
-        CART_KEY,
-        JSON.stringify(cart)
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Failed to prepare checkout."
+        );
+      }
+
+      window.dispatchEvent(
+        new Event("studystow-cart-updated")
       );
 
-      window.location.href = "/checkout";
+      router.push("/checkout");
     } catch (error) {
-      console.error(
-        "Failed to process Buy Now:",
-        error
+      console.error("Failed to process Buy Now:", error);
+
+      setCartMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to proceed to checkout."
       );
+
+      setBuyNowLoading(false);
+
+      setTimeout(() => {
+        setCartMessage("");
+      }, 3000);
     }
   }
 
@@ -303,25 +389,20 @@ export default function BookDetails({
             )}
           </div>
 
-          {/* Additional Images */}
           {galleryImages.length > 1 && (
             <div className="mt-4 flex gap-3 overflow-x-auto">
-              {galleryImages.map(
-                (image, index) => (
-                  <div
-                    key={`${image}-${index}`}
-                    className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-gray-50"
-                  >
-                    <img
-                      src={image}
-                      alt={`${book.title} ${
-                        index + 1
-                      }`}
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                )
-              )}
+              {galleryImages.map((image, index) => (
+                <div
+                  key={`${image}-${index}`}
+                  className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-gray-50"
+                >
+                  <img
+                    src={image}
+                    alt={`${book.title} ${index + 1}`}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -350,13 +431,10 @@ export default function BookDetails({
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <span className="text-3xl font-bold text-gray-900">
               ₹
-              {book.price.toLocaleString(
-                "en-IN"
-              )}
+              {book.price.toLocaleString("en-IN")}
             </span>
 
-            {book.originalPrice >
-              book.price && (
+            {book.originalPrice > book.price && (
               <>
                 <span className="text-lg text-gray-400 line-through">
                   ₹
@@ -401,7 +479,11 @@ export default function BookDetails({
                     Math.max(1, value - 1)
                   )
                 }
-                disabled={quantity <= 1}
+                disabled={
+                  quantity <= 1 ||
+                  cartLoading ||
+                  buyNowLoading
+                }
                 className="flex h-full w-11 items-center justify-center text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Minus className="h-4 w-4" />
@@ -415,15 +497,14 @@ export default function BookDetails({
                 type="button"
                 onClick={() =>
                   setQuantity((value) =>
-                    Math.min(
-                      book.stock,
-                      value + 1
-                    )
+                    Math.min(book.stock, value + 1)
                   )
                 }
                 disabled={
                   book.stock <= 0 ||
-                  quantity >= book.stock
+                  quantity >= book.stock ||
+                  cartLoading ||
+                  buyNowLoading
                 }
                 className="flex h-full w-11 items-center justify-center text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -449,21 +530,34 @@ export default function BookDetails({
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
-              disabled={book.stock <= 0}
+              disabled={
+                book.stock <= 0 ||
+                cartLoading ||
+                buyNowLoading
+              }
               onClick={addToCart}
               className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-900 px-6 py-3.5 text-sm font-semibold text-gray-900 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ShoppingCart className="h-4 w-4" />
-              Add to Cart
+
+              {cartLoading
+                ? "Adding..."
+                : "Add to Cart"}
             </button>
 
             <button
               type="button"
-              disabled={book.stock <= 0}
+              disabled={
+                book.stock <= 0 ||
+                cartLoading ||
+                buyNowLoading
+              }
               onClick={buyNow}
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-gray-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Buy Now
+              {buyNowLoading
+                ? "Processing..."
+                : "Buy Now"}
             </button>
           </div>
 
@@ -471,11 +565,12 @@ export default function BookDetails({
           <button
             type="button"
             onClick={toggleWishlist}
+            disabled={wishlistLoading}
             className={`mt-3 flex w-full items-center justify-center gap-2 rounded-lg border px-6 py-3 text-sm font-semibold transition ${
               isWishlisted
                 ? "border-red-200 bg-red-50 text-red-600"
                 : "text-gray-700 hover:bg-gray-50"
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-60`}
           >
             <Heart
               className={`h-4 w-4 ${
@@ -485,7 +580,9 @@ export default function BookDetails({
               }`}
             />
 
-            {isWishlisted
+            {wishlistLoading
+              ? "Updating..."
+              : isWishlisted
               ? "Remove from Wishlist"
               : "Add to Wishlist"}
           </button>

@@ -13,9 +13,11 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 type CartItem = {
-  id: string;
+  id?: string;
+  book: string;
   title: string;
   slug: string;
   author?: string;
@@ -24,128 +26,414 @@ type CartItem = {
   originalPrice?: number;
   image?: string;
   quantity: number;
-  stock?: number;
+  stock: number;
 };
 
-const CART_KEY = "studystow-cart";
+type CartResponse = {
+  items?: CartItem[];
+  subtotal?: number;
+  itemCount?: number;
+};
+
+const CART_UPDATED_EVENT = "studystow-cart-updated";
+
+function notifyCartUpdated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new Event(CART_UPDATED_EVENT)
+    );
+  }
+}
+
+function formatPrice(value: number) {
+  return `₹${Number(value || 0).toLocaleString(
+    "en-IN"
+  )}`;
+}
 
 export default function CartPage() {
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const { status } = useSession();
 
-  useEffect(() => {
-    loadCart();
-  }, []);
+  const [items, setItems] = useState<CartItem[]>(
+    []
+  );
 
-  function loadCart() {
+  const [subtotal, setSubtotal] = useState(0);
+
+  const [itemCount, setItemCount] = useState(0);
+
+  const [loading, setLoading] = useState(true);
+
+  const [error, setError] = useState("");
+
+  const [updatingBookId, setUpdatingBookId] =
+    useState("");
+
+  const [removingBookId, setRemovingBookId] =
+    useState("");
+
+  const [clearing, setClearing] =
+    useState(false);
+
+  /*
+   * ==========================================================
+   * LOAD CART FROM MONGODB
+   * ==========================================================
+   *
+   * /api/cart is the single source of truth.
+   *
+   * It returns:
+   *
+   * {
+   *   items,
+   *   subtotal,
+   *   itemCount
+   * }
+   */
+  async function loadCart() {
     try {
-      const savedCart = localStorage.getItem(CART_KEY);
+      setLoading(true);
+      setError("");
 
-      if (!savedCart) {
+      const response = await fetch("/api/cart", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+        },
+      });
+
+      /*
+       * Not logged in.
+       */
+      if (response.status === 401) {
         setItems([]);
+        setSubtotal(0);
+        setItemCount(0);
+
+        setError(
+          "Please log in to view your cart."
+        );
+
         return;
       }
 
-      const parsed = JSON.parse(savedCart);
+      const result = await response.json();
 
-      setItems(Array.isArray(parsed) ? parsed : []);
+if (!response.ok) {
+  throw new Error(
+    result?.message || "Failed to load cart."
+  );
+}
+
+const payload = result?.data ?? result;
+
+const cartItems = Array.isArray(payload?.items)
+  ? payload.items
+  : [];
+
+setItems(cartItems);
+
+setSubtotal(
+  Number(payload?.subtotal || 0)
+);
+
+setItemCount(
+  Number(payload?.itemCount || 0)
+);
     } catch (error) {
-      console.error("Failed to load cart:", error);
+      console.error(
+        "Load cart error:",
+        error
+      );
+
       setItems([]);
+      setSubtotal(0);
+      setItemCount(0);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to load cart."
+      );
     } finally {
-      setLoaded(true);
+      setLoading(false);
     }
   }
 
-  function saveCart(updatedItems: CartItem[]) {
-    setItems(updatedItems);
+  /*
+   * ==========================================================
+   * INITIAL LOAD
+   * ==========================================================
+   */
+  useEffect(() => {
+    if (status === "loading") {
+      return;
+    }
 
-    localStorage.setItem(
-      CART_KEY,
-      JSON.stringify(updatedItems)
+    loadCart();
+
+    /*
+     * Refresh cart after Add to Cart,
+     * update quantity, remove, etc.
+     */
+    function handleCartUpdate() {
+      loadCart();
+    }
+
+    window.addEventListener(
+      CART_UPDATED_EVENT,
+      handleCartUpdate
     );
-  }
 
-  function increaseQuantity(id: string) {
-    const updatedItems = items.map((item) => {
-      if (item.id !== id) return item;
+    /*
+     * Refresh when user comes back to the tab.
+     */
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState === "visible"
+      ) {
+        loadCart();
+      }
+    }
 
-      const maxStock = item.stock ?? 99;
-
-      return {
-        ...item,
-        quantity: Math.min(
-          item.quantity + 1,
-          maxStock
-        ),
-      };
-    });
-
-    saveCart(updatedItems);
-  }
-
-  function decreaseQuantity(id: string) {
-    const updatedItems = items
-      .map((item) => {
-        if (item.id !== id) return item;
-
-        return {
-          ...item,
-          quantity: item.quantity - 1,
-        };
-      })
-      .filter((item) => item.quantity > 0);
-
-    saveCart(updatedItems);
-  }
-
-  function removeItem(id: string) {
-    saveCart(
-      items.filter((item) => item.id !== id)
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
     );
+
+    return () => {
+      window.removeEventListener(
+        CART_UPDATED_EVENT,
+        handleCartUpdate
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, [status]);
+
+  /*
+   * ==========================================================
+   * UPDATE QUANTITY
+   * ==========================================================
+   */
+  async function updateQuantity(
+    bookId: string,
+    quantity: number
+  ) {
+    if (quantity < 1) {
+      return;
+    }
+
+    try {
+      setUpdatingBookId(bookId);
+      setError("");
+
+      const response = await fetch(
+        "/api/cart",
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            bookId,
+            quantity,
+          }),
+        }
+      );
+
+      const result =
+        await response.json();
+
+      if (response.status === 401) {
+        setError(
+          "Please log in to update your cart."
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          result?.message ||
+            result?.error ||
+            "Failed to update cart."
+        );
+      }
+
+      /*
+       * Get fresh prices, stock and quantities
+       * from MongoDB after update.
+       */
+      await loadCart();
+
+      notifyCartUpdated();
+    } catch (error) {
+      console.error(
+        "Update cart error:",
+        error
+      );
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update cart."
+      );
+    } finally {
+      setUpdatingBookId("");
+    }
   }
 
-  function clearCart() {
-    localStorage.removeItem(CART_KEY);
-    setItems([]);
+  /*
+   * ==========================================================
+   * REMOVE ITEM
+   * ==========================================================
+   */
+  async function removeItem(bookId: string) {
+    try {
+      setRemovingBookId(bookId);
+      setError("");
+
+      const response = await fetch(
+        "/api/cart",
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            bookId,
+          }),
+        }
+      );
+
+      const result =
+        await response.json();
+
+      if (response.status === 401) {
+        setError(
+          "Please log in to update your cart."
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          result?.message ||
+            result?.error ||
+            "Failed to remove item."
+        );
+      }
+
+      /*
+       * Reload directly from MongoDB.
+       */
+      await loadCart();
+
+      notifyCartUpdated();
+    } catch (error) {
+      console.error(
+        "Remove cart item error:",
+        error
+      );
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to remove item."
+      );
+    } finally {
+      setRemovingBookId("");
+    }
   }
 
-  const subtotal = items.reduce(
-    (total, item) =>
-      total + item.price * item.quantity,
-    0
-  );
+  /*
+   * ==========================================================
+   * CLEAR CART
+   * ==========================================================
+   */
+  async function clearCart() {
+    try {
+      setClearing(true);
+      setError("");
 
-  const discount =
-    subtotal >= 1000 ? 200 : 0;
+      const response = await fetch(
+        "/api/cart",
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({}),
+        }
+      );
 
-  const shipping =
-    subtotal === 0
-      ? 0
-      : subtotal >= 999
-        ? 0
-        : 49;
+      const result =
+        await response.json();
 
-  const total =
-    subtotal - discount + shipping;
+      if (response.status === 401) {
+        setError(
+          "Please log in to update your cart."
+        );
+        return;
+      }
 
-  const totalItems = items.reduce(
-    (total, item) =>
-      total + item.quantity,
-    0
-  );
+      if (!response.ok) {
+        throw new Error(
+          result?.message ||
+            result?.error ||
+            "Failed to clear cart."
+        );
+      }
 
-  const remainingForFreeShipping =
-    Math.max(0, 999 - subtotal);
+      /*
+       * Immediately clear UI.
+       */
+      setItems([]);
+      setSubtotal(0);
+      setItemCount(0);
 
-  if (!loaded) {
+      notifyCartUpdated();
+    } catch (error) {
+      console.error(
+        "Clear cart error:",
+        error
+      );
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to clear cart."
+      );
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  /*
+   * ==========================================================
+   * LOADING
+   * ==========================================================
+   */
+  if (
+    status === "loading" ||
+    loading
+  ) {
     return (
       <main className="min-h-screen bg-slate-50">
         <section className="border-b bg-white">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div className="animate-pulse">
               <div className="h-5 w-32 rounded bg-slate-200" />
+
               <div className="mt-6 h-10 w-48 rounded bg-slate-200" />
+
               <div className="mt-3 h-5 w-64 rounded bg-slate-100" />
             </div>
           </div>
@@ -154,6 +442,126 @@ export default function CartPage() {
     );
   }
 
+  /*
+   * ==========================================================
+   * NOT LOGGED IN
+   * ==========================================================
+   */
+  if (status === "unauthenticated") {
+    return (
+      <main className="min-h-screen bg-slate-50">
+        <section className="border-b bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Link
+                href="/"
+                className="transition hover:text-slate-900"
+              >
+                Home
+              </Link>
+
+              <ChevronRight className="h-4 w-4" />
+
+              <span className="font-medium text-slate-900">
+                Cart
+              </span>
+            </div>
+
+            <h1 className="mt-6 text-3xl font-bold tracking-tight text-slate-900">
+              Shopping Cart
+            </h1>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="rounded-2xl border border-dashed bg-white px-6 py-20 text-center">
+            <ShoppingCart className="mx-auto h-12 w-12 text-slate-300" />
+
+            <h2 className="mt-6 text-xl font-semibold text-slate-900">
+              Please log in
+            </h2>
+
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+              Log in to view and manage your
+              MongoDB cart.
+            </p>
+
+            <Link
+              href="/login?callbackUrl=/cart"
+              className="mt-7 inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Log in
+            </Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  /*
+   * ==========================================================
+   * ERROR
+   * ==========================================================
+   */
+  if (
+    error &&
+    items.length === 0
+  ) {
+    return (
+      <main className="min-h-screen bg-slate-50">
+        <section className="border-b bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Link
+                href="/"
+                className="transition hover:text-slate-900"
+              >
+                Home
+              </Link>
+
+              <ChevronRight className="h-4 w-4" />
+
+              <span className="font-medium text-slate-900">
+                Cart
+              </span>
+            </div>
+
+            <h1 className="mt-6 text-3xl font-bold tracking-tight text-slate-900">
+              Shopping Cart
+            </h1>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="rounded-2xl border bg-white px-6 py-16 text-center">
+            <ShoppingCart className="mx-auto h-12 w-12 text-slate-300" />
+
+            <h2 className="mt-5 text-xl font-semibold text-slate-900">
+              Unable to load your cart
+            </h2>
+
+            <p className="mt-2 text-sm text-red-600">
+              {error}
+            </p>
+
+            <button
+              type="button"
+              onClick={loadCart}
+              className="mt-6 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Try Again
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  /*
+   * ==========================================================
+   * EMPTY CART
+   * ==========================================================
+   */
   if (items.length === 0) {
     return (
       <main className="min-h-screen bg-slate-50">
@@ -203,8 +611,8 @@ export default function CartPage() {
             </h2>
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-              Looks like you haven&apos;t added any
-              books to your cart yet.
+              Looks like you haven&apos;t added
+              any books to your cart yet.
             </p>
 
             <Link
@@ -219,9 +627,37 @@ export default function CartPage() {
     );
   }
 
+  /*
+   * ==========================================================
+   * TOTAL
+   * ==========================================================
+   *
+   * Only MongoDB cart subtotal is used.
+   *
+   * No fake discount.
+   * No fake shipping.
+   * No fake tax.
+   */
+  const discount = 0;
+  const shipping = 0;
+
+  const total = Math.max(
+    subtotal +
+      shipping -
+      discount,
+    0
+  );
+
+  /*
+   * ==========================================================
+   * CART
+   * ==========================================================
+   */
   return (
     <main className="min-h-screen bg-slate-50">
-      {/* HEADER */}
+      {/* ======================================================
+          HEADER
+          ====================================================== */}
       <section className="border-b bg-white">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
@@ -251,8 +687,8 @@ export default function CartPage() {
                 </h1>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {totalItems}{" "}
-                  {totalItems === 1
+                  {itemCount}{" "}
+                  {itemCount === 1
                     ? "item"
                     : "items"}{" "}
                   in your cart
@@ -263,38 +699,61 @@ export default function CartPage() {
             <button
               type="button"
               onClick={clearCart}
-              className="inline-flex items-center gap-2 text-sm font-semibold text-red-600 transition hover:text-red-700"
+              disabled={clearing}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-red-600 transition hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Trash2 className="h-4 w-4" />
-              Clear Cart
+
+              {clearing
+                ? "Clearing..."
+                : "Clear Cart"}
             </button>
           </div>
         </div>
       </section>
 
-      {/* MAIN */}
+      {/* ======================================================
+          CONTENT
+          ====================================================== */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
-          {/* LEFT - CART ITEMS */}
+
+          {/* ==================================================
+              CART ITEMS
+              ================================================== */}
           <div className="min-w-0 space-y-4">
             {items.map((item) => {
               const itemTotal =
-                item.price * item.quantity;
+                Number(item.price || 0) *
+                Number(item.quantity || 0);
 
-              const maxStock =
-                item.stock ?? 99;
+              const busy =
+                updatingBookId === item.book ||
+                removingBookId === item.book;
 
               const comparePrice =
-                item.compareAtPrice ??
-                item.originalPrice;
+                Number(
+                  item.compareAtPrice ??
+                    item.originalPrice ??
+                    0
+                );
 
               return (
                 <article
-                  key={item.id}
+                  key={
+                    item.id ||
+                    item.book
+                  }
                   className="rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md sm:p-5"
                 >
                   <div className="flex gap-4">
-                    {/* IMAGE */}
+                    {/* BOOK IMAGE */}
                     <Link
                       href={`/books/${item.slug}`}
                       className="shrink-0"
@@ -312,7 +771,7 @@ export default function CartPage() {
                       </div>
                     </Link>
 
-                    {/* DETAILS */}
+                    {/* BOOK INFO */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -331,13 +790,17 @@ export default function CartPage() {
                           )}
                         </div>
 
+                        {/* REMOVE */}
                         <button
                           type="button"
+                          disabled={busy}
                           onClick={() =>
-                            removeItem(item.id)
+                            removeItem(
+                              item.book
+                            )
                           }
                           aria-label={`Remove ${item.title} from cart`}
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -346,53 +809,66 @@ export default function CartPage() {
                       {/* PRICE */}
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <span className="text-lg font-bold text-slate-900">
-                          ₹
-                          {item.price.toLocaleString(
-                            "en-IN"
+                          {formatPrice(
+                            item.price
                           )}
                         </span>
 
-                        {comparePrice &&
-                          comparePrice > item.price && (
-                            <span className="text-sm text-slate-400 line-through">
-                              ₹
-                              {comparePrice.toLocaleString(
-                                "en-IN"
-                              )}
-                            </span>
-                          )}
+                        {comparePrice >
+                          Number(
+                            item.price || 0
+                          ) && (
+                          <span className="text-sm text-slate-400 line-through">
+                            {formatPrice(
+                              comparePrice
+                            )}
+                          </span>
+                        )}
                       </div>
 
                       {/* QUANTITY + TOTAL */}
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
                         <div className="flex h-10 items-center overflow-hidden rounded-lg border border-slate-200">
+                          {/* MINUS */}
                           <button
                             type="button"
+                            disabled={
+                              busy ||
+                              item.quantity <=
+                                1
+                            }
                             onClick={() =>
-                              decreaseQuantity(
-                                item.id
+                              updateQuantity(
+                                item.book,
+                                item.quantity -
+                                  1
                               )
                             }
-                            className="flex h-full w-10 items-center justify-center text-slate-600 transition hover:bg-slate-50"
+                            className="flex h-full w-10 items-center justify-center text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
                             aria-label="Decrease quantity"
                           >
                             <Minus className="h-4 w-4" />
                           </button>
 
+                          {/* QUANTITY */}
                           <span className="flex h-full min-w-10 items-center justify-center border-x border-slate-200 px-2 text-sm font-semibold text-slate-900">
                             {item.quantity}
                           </span>
 
+                          {/* PLUS */}
                           <button
                             type="button"
-                            onClick={() =>
-                              increaseQuantity(
-                                item.id
-                              )
-                            }
                             disabled={
+                              busy ||
                               item.quantity >=
-                              maxStock
+                                item.stock
+                            }
+                            onClick={() =>
+                              updateQuantity(
+                                item.book,
+                                item.quantity +
+                                  1
+                              )
                             }
                             className="flex h-full w-10 items-center justify-center text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
                             aria-label="Increase quantity"
@@ -401,21 +877,22 @@ export default function CartPage() {
                           </button>
                         </div>
 
+                        {/* ITEM TOTAL */}
                         <p className="text-base font-bold text-slate-900">
-                          ₹
-                          {itemTotal.toLocaleString(
-                            "en-IN"
+                          {formatPrice(
+                            itemTotal
                           )}
                         </p>
                       </div>
 
-                      {item.stock !== undefined &&
-                        item.quantity >=
-                          item.stock && (
-                          <p className="mt-2 text-xs font-medium text-orange-600">
-                            Maximum available quantity reached.
-                          </p>
-                        )}
+                      {/* STOCK */}
+                      {item.quantity >=
+                        item.stock && (
+                        <p className="mt-2 text-xs font-medium text-orange-600">
+                          Maximum available
+                          quantity reached.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -434,111 +911,62 @@ export default function CartPage() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN */}
+          {/* ==================================================
+              RIGHT SIDEBAR
+              ================================================== */}
           <aside className="min-w-0 lg:sticky lg:top-24">
             <div className="space-y-4">
+
               {/* ORDER SUMMARY */}
               <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-                <div className="border-b bg-white px-5 py-4">
+                <div className="border-b px-5 py-4">
                   <h2 className="font-semibold text-slate-900">
                     Order Summary
                   </h2>
                 </div>
 
                 <div className="space-y-3 p-5">
+                  {/* SUBTOTAL */}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-500">
                       Subtotal
                     </span>
 
                     <span className="font-medium text-slate-900">
-                      ₹
-                      {subtotal.toLocaleString(
-                        "en-IN"
+                      {formatPrice(
+                        subtotal
                       )}
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">
-                      Discount
-                    </span>
+                  {/* DISCOUNT */}
+                  {discount > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500">
+                        Discount
+                      </span>
 
-                    <span className="font-medium text-green-600">
-                      {discount > 0
-                        ? `-₹${discount.toLocaleString(
-                            "en-IN"
-                          )}`
-                        : "₹0"}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">
-                      Shipping
-                    </span>
-
-                    <span
-                      className={
-                        shipping === 0
-                          ? "font-semibold text-green-600"
-                          : "font-medium text-slate-900"
-                      }
-                    >
-                      {shipping === 0
-                        ? "FREE"
-                        : `₹${shipping}`}
-                    </span>
-                  </div>
-
-                  {/* FREE SHIPPING PROGRESS */}
-                  {subtotal < 999 ? (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <div className="flex items-start gap-2">
-                        <Truck className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
-
-                        <p className="text-xs leading-5 text-slate-600">
-                          Add{" "}
-                          <span className="font-bold text-slate-900">
-                            ₹
-                            {remainingForFreeShipping.toLocaleString(
-                              "en-IN"
-                            )}
-                          </span>{" "}
-                          more to get{" "}
-                          <span className="font-semibold text-slate-900">
-                            FREE delivery
-                          </span>
-                          .
-                        </p>
-                      </div>
-
-                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className="h-full rounded-full bg-slate-900 transition-all"
-                          style={{
-                            width: `${Math.min(
-                              (subtotal / 999) * 100,
-                              100
-                            )}%`,
-                          }}
-                        />
-                      </div>
-
-                      <div className="mt-1.5 flex justify-between text-[11px] text-slate-400">
-                        <span>₹0</span>
-                        <span>₹999</span>
-                      </div>
+                      <span className="font-medium text-green-600">
+                        -
+                        {formatPrice(
+                          discount
+                        )}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="rounded-xl border border-green-100 bg-green-50 p-3">
-                      <div className="flex items-center gap-2">
-                        <Truck className="h-4 w-4 text-green-600" />
+                  )}
 
-                        <p className="text-xs font-semibold text-green-700">
-                          You&apos;ve unlocked FREE delivery!
-                        </p>
-                      </div>
+                  {/* SHIPPING */}
+                  {shipping > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500">
+                        Shipping
+                      </span>
+
+                      <span className="font-medium text-slate-900">
+                        {formatPrice(
+                          shipping
+                        )}
+                      </span>
                     </div>
                   )}
 
@@ -550,16 +978,9 @@ export default function CartPage() {
                       </span>
 
                       <span className="text-2xl font-bold text-slate-900">
-                        ₹
-                        {total.toLocaleString(
-                          "en-IN"
-                        )}
+                        {formatPrice(total)}
                       </span>
                     </div>
-
-                    <p className="mt-1 text-right text-xs text-slate-400">
-                      Inclusive of applicable taxes
-                    </p>
                   </div>
 
                   {/* CHECKOUT */}
@@ -568,14 +989,17 @@ export default function CartPage() {
                     className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
                     Proceed to Checkout
+
                     <ChevronRight className="h-4 w-4" />
                   </Link>
                 </div>
               </div>
 
-              {/* BENEFITS */}
+              {/* DELIVERY + SECURITY */}
               <div className="rounded-2xl border bg-white p-5 shadow-sm">
                 <div className="space-y-5">
+
+                  {/* DELIVERY */}
                   <div className="flex gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100">
                       <Truck className="h-4 w-4 text-slate-700" />
@@ -583,17 +1007,19 @@ export default function CartPage() {
 
                     <div>
                       <p className="text-sm font-semibold text-slate-900">
-                        Free Delivery
+                        Delivery
                       </p>
 
                       <p className="mt-1 text-xs leading-5 text-slate-500">
-                        Free delivery on orders above ₹999.
+                        Delivery details are
+                        handled during checkout.
                       </p>
                     </div>
                   </div>
 
                   <div className="h-px bg-slate-100" />
 
+                  {/* SECURITY */}
                   <div className="flex gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100">
                       <ShieldCheck className="h-4 w-4 text-slate-700" />
@@ -605,19 +1031,15 @@ export default function CartPage() {
                       </p>
 
                       <p className="mt-1 text-xs leading-5 text-slate-500">
-                        Your checkout information is protected.
+                        Your checkout information
+                        is protected.
                       </p>
                     </div>
                   </div>
+
                 </div>
               </div>
 
-              {/* TRUST NOTE */}
-              <div className="rounded-xl bg-slate-100 px-4 py-3 text-center">
-                <p className="text-xs text-slate-500">
-                  Safe & secure shopping with StudyStow
-                </p>
-              </div>
             </div>
           </aside>
         </div>

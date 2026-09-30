@@ -1,139 +1,265 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { signOut, useSession } from "next-auth/react";
 
-const orders = [
-  {
-    id: "ORD-2026-00125",
-    date: "26 September 2026",
-    items: [
-      {
-        title: "Atomic Habits",
-        author: "James Clear",
-        quantity: 1,
-        price: 499,
-      },
-      {
-        title: "The Psychology of Money",
-        author: "Morgan Housel",
-        quantity: 1,
-        price: 349,
-      },
-    ],
-    total: 848,
-    status: "Delivered",
-    payment: "Paid",
-  },
-  {
-    id: "ORD-2026-00118",
-    date: "22 September 2026",
-    items: [
-      {
-        title: "Ikigai",
-        author: "Héctor García",
-        quantity: 1,
-        price: 399,
-      },
-      {
-        title: "Deep Work",
-        author: "Cal Newport",
-        quantity: 1,
-        price: 900,
-      },
-    ],
-    total: 1299,
-    status: "Shipped",
-    payment: "Paid",
-  },
-  {
-    id: "ORD-2026-00105",
-    date: "15 September 2026",
-    items: [
-      {
-        title: "Rich Dad Poor Dad",
-        author: "Robert Kiyosaki",
-        quantity: 1,
-        price: 599,
-      },
-    ],
-    total: 599,
-    status: "Processing",
-    payment: "Paid",
-  },
-  {
-    id: "ORD-2026-00096",
-    date: "8 September 2026",
-    items: [
-      {
-        title: "The Alchemist",
-        author: "Paulo Coelho",
-        quantity: 2,
-        price: 399,
-      },
-    ],
-    total: 798,
-    status: "Delivered",
-    payment: "Paid",
-  },
-];
+type User = {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+};
 
-function getStatusClass(status: string) {
-  switch (status) {
-    case "Delivered":
-      return "bg-green-100 text-green-700";
+type OrderItem = {
+  _id?: string;
+  title: string;
+  quantity: number;
+  price: number;
+  image?: string;
+};
 
-    case "Shipped":
-      return "bg-blue-100 text-blue-700";
-
-    case "Processing":
-      return "bg-yellow-100 text-yellow-700";
-
-    case "Cancelled":
-      return "bg-red-100 text-red-700";
-
-    default:
-      return "bg-gray-100 text-gray-700";
-  }
-}
+type Order = {
+  _id: string;
+  orderNumber: string;
+  createdAt: string;
+  total: number;
+  orderStatus: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  items: OrderItem[];
+};
 
 export default function OrdersPage() {
+  const { data: session, status: sessionStatus } = useSession();
+
+  const [user, setUser] = useState<User | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+
+    const loadOrders = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const email = session.user?.email;
+
+        if (!email) {
+          throw new Error("User email not found");
+        }
+
+        // Get logged-in user's MongoDB ID
+        const userResponse = await fetch(
+          `/api/users?search=${encodeURIComponent(
+            email
+          )}&limit=1`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        const userData = await userResponse.json();
+
+        if (!userResponse.ok || !userData.success) {
+          throw new Error(
+            userData.message || "Failed to load user"
+          );
+        }
+
+        const currentUser = userData.data?.[0];
+
+        if (!currentUser) {
+          throw new Error("User account not found");
+        }
+
+        setUser(currentUser);
+
+        // Get only this user's orders
+        const ordersResponse = await fetch(
+          `/api/orders?customer=${encodeURIComponent(
+            currentUser._id
+          )}&limit=100`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        const ordersData = await ordersResponse.json();
+
+        if (!ordersResponse.ok || !ordersData.success) {
+          throw new Error(
+            ordersData.message || "Failed to load orders"
+          );
+        }
+
+        setOrders(
+          Array.isArray(ordersData.data)
+            ? ordersData.data
+            : []
+        );
+      } catch (err) {
+        console.error("Orders loading error:", err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load orders"
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadOrders();
+  }, [sessionStatus, session?.user?.email]);
+
+  const filteredOrders = useMemo(() => {
+    if (filter === "all") {
+      return orders;
+    }
+
+    return orders.filter(
+      (order) => order.orderStatus === filter
+    );
+  }, [orders, filter]);
+
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  const formatAmount = (amount: number) => {
+    return `₹${Number(amount || 0).toLocaleString("en-IN")}`;
+  };
+
+  const statusClass = (status: string) => {
+    switch (status) {
+      case "delivered":
+        return "bg-green-100 text-green-700";
+
+      case "shipped":
+        return "bg-blue-100 text-blue-700";
+
+      case "processing":
+      case "confirmed":
+        return "bg-yellow-100 text-yellow-700";
+
+      case "cancelled":
+        return "bg-red-100 text-red-700";
+
+      default:
+        return "bg-gray-100 text-gray-700";
+    }
+  };
+
+  const paymentStatusClass = (status: string) => {
+    switch (status) {
+      case "paid":
+        return "bg-green-100 text-green-700";
+
+      case "failed":
+        return "bg-red-100 text-red-700";
+
+      case "refunded":
+        return "bg-purple-100 text-purple-700";
+
+      default:
+        return "bg-yellow-100 text-yellow-700";
+    }
+  };
+
+  if (sessionStatus === "loading" || loading) {
+    return (
+      <main className="min-h-screen bg-gray-50">
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="animate-pulse">
+            <div className="h-8 w-48 rounded bg-gray-200" />
+            <div className="mt-3 h-4 w-64 rounded bg-gray-200" />
+
+            <div className="mt-8 grid gap-6 lg:grid-cols-4">
+              <div className="h-72 rounded-xl bg-gray-200" />
+
+              <div className="lg:col-span-3">
+                <div className="h-14 rounded-xl bg-gray-200" />
+                <div className="mt-4 h-56 rounded-xl bg-gray-200" />
+                <div className="mt-4 h-56 rounded-xl bg-gray-200" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (sessionStatus !== "authenticated") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md rounded-xl border bg-white p-8 text-center shadow-sm">
+          <h1 className="text-xl font-bold text-gray-900">
+            Please login
+          </h1>
+
+          <p className="mt-2 text-sm text-gray-500">
+            Login to view your orders.
+          </p>
+
+          <Link
+            href="/login"
+            className="mt-6 inline-block rounded-lg bg-gray-900 px-5 py-3 text-sm font-semibold text-white hover:bg-gray-800"
+          >
+            Login
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <Link
-            href="/account"
-            className="text-sm font-medium text-gray-500 hover:text-gray-900"
-          >
-            ← Back to My Account
-          </Link>
+          <h1 className="text-2xl font-bold text-gray-900">
+            My Orders
+          </h1>
 
-          <div className="mt-5">
-            <h1 className="text-2xl font-bold text-gray-900">
-              My Orders
-            </h1>
-
-            <p className="mt-1 text-sm text-gray-500">
-              View and manage all your book orders.
-            </p>
-          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            View and track your book orders.
+          </p>
         </div>
 
-        {/* Layout */}
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-4">
           {/* Sidebar */}
           <aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3 border-b px-2 pb-5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-900 font-bold text-white">
-                C
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
+                {(user?.name || "C")
+                  .charAt(0)
+                  .toUpperCase()}
               </div>
 
-              <div>
-                <p className="font-semibold text-gray-900">
-                  Customer Name
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-gray-900">
+                  {user?.name || "Customer"}
                 </p>
 
-                <p className="text-xs text-gray-500">
-                  customer@example.com
+                <p className="truncate text-xs text-gray-500">
+                  {user?.email || session.user?.email}
                 </p>
               </div>
             </div>
@@ -176,6 +302,11 @@ export default function OrdersPage() {
 
               <button
                 type="button"
+                onClick={() =>
+                  signOut({
+                    callbackUrl: "/login",
+                  })
+                }
                 className="w-full rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
               >
                 Logout
@@ -185,201 +316,193 @@ export default function OrdersPage() {
 
           {/* Orders */}
           <section className="lg:col-span-3">
-            {/* Summary */}
-            <div className="mb-6 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <p className="text-sm text-gray-500">
-                  Total Orders
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {orders.length}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <p className="text-sm text-gray-500">
-                  Active Orders
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {
-                    orders.filter(
-                      (order) =>
-                        order.status === "Processing" ||
-                        order.status === "Shipped"
-                    ).length
-                  }
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-white p-5 shadow-sm">
-                <p className="text-sm text-gray-500">
-                  Delivered
-                </p>
-
-                <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {
-                    orders.filter(
-                      (order) => order.status === "Delivered"
-                    ).length
-                  }
-                </p>
+            {/* Filters */}
+            <div className="rounded-xl border bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  ["all", "All Orders"],
+                  ["pending", "Pending"],
+                  ["confirmed", "Confirmed"],
+                  ["processing", "Processing"],
+                  ["shipped", "Shipped"],
+                  ["delivered", "Delivered"],
+                  ["cancelled", "Cancelled"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFilter(value)}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                      filter === value
+                        ? "bg-gray-900 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Order List */}
-            <div className="space-y-5">
-              {orders.map((order) => (
-                <div
-                  key={order.id}
-                  className="overflow-hidden rounded-xl border bg-white shadow-sm"
-                >
-                  {/* Order Header */}
-                  <div className="flex flex-col gap-4 border-b bg-gray-50 p-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Order ID
-                      </p>
+            {/* Orders List */}
+            <div className="mt-6 space-y-4">
+              {filteredOrders.length === 0 ? (
+                <div className="rounded-xl border bg-white p-10 text-center shadow-sm">
+                  <div className="text-4xl">📦</div>
 
-                      <p className="mt-1 font-semibold text-gray-900">
-                        {order.id}
-                      </p>
-
-                      <p className="mt-1 text-sm text-gray-500">
-                        Ordered on {order.date}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold ${getStatusClass(
-                          order.status
-                        )}`}
-                      >
-                        {order.status}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Order Items */}
-                  <div className="divide-y">
-                    {order.items.map((item, index) => (
-                      <div
-                        key={`${order.id}-${index}`}
-                        className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex gap-4">
-                          {/* Book Image Placeholder */}
-                          <div className="flex h-20 w-16 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-2xl">
-                            📚
-                          </div>
-
-                          <div>
-                            <h3 className="font-semibold text-gray-900">
-                              {item.title}
-                            </h3>
-
-                            <p className="mt-1 text-sm text-gray-500">
-                              by {item.author}
-                            </p>
-
-                            <p className="mt-2 text-sm text-gray-500">
-                              Quantity: {item.quantity}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="text-left sm:text-right">
-                          <p className="font-semibold text-gray-900">
-                            ₹{item.price.toLocaleString("en-IN")}
-                          </p>
-
-                          <p className="mt-1 text-xs text-gray-500">
-                            Price per item
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Order Footer */}
-                  <div className="flex flex-col gap-4 border-t p-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm text-gray-500">
-                        Payment
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {order.payment}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col gap-3 sm:items-end">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-gray-500">
-                          Order Total
-                        </span>
-
-                        <span className="text-lg font-bold text-gray-900">
-                          ₹{order.total.toLocaleString("en-IN")}
-                        </span>
-                      </div>
-
-                      <Link
-                        href={`/account/orders/${order.id}`}
-                        className="rounded-lg bg-gray-900 px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-gray-800"
-                      >
-                        View Order Details
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Empty State */}
-            {orders.length === 0 && (
-              <div className="rounded-xl border bg-white p-10 text-center shadow-sm">
-                <div className="text-4xl">📦</div>
-
-                <h2 className="mt-4 text-lg font-semibold text-gray-900">
-                  No orders yet
-                </h2>
-
-                <p className="mt-2 text-sm text-gray-500">
-                  You have not placed any orders yet.
-                </p>
-
-                <Link
-                  href="/books"
-                  className="mt-6 inline-block rounded-lg bg-gray-900 px-5 py-3 text-sm font-semibold text-white hover:bg-gray-800"
-                >
-                  Browse Books
-                </Link>
-              </div>
-            )}
-
-            {/* Continue Shopping */}
-            <div className="mt-6 rounded-xl bg-gray-900 p-6 text-white">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="font-semibold">
-                    Looking for another book?
+                  <h2 className="mt-4 text-lg font-semibold text-gray-900">
+                    No orders found
                   </h2>
 
-                  <p className="mt-1 text-sm text-gray-300">
-                    Explore our collection and find your next read.
+                  <p className="mt-2 text-sm text-gray-500">
+                    {filter === "all"
+                      ? "You have not placed any orders yet."
+                      : `You don't have any ${filter} orders.`}
                   </p>
-                </div>
 
-                <Link
-                  href="/books"
-                  className="w-fit rounded-lg bg-white px-5 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-100"
-                >
-                  Browse Books
-                </Link>
-              </div>
+                  {filter === "all" && (
+                    <Link
+                      href="/books"
+                      className="mt-6 inline-block rounded-lg bg-gray-900 px-5 py-3 text-sm font-semibold text-white hover:bg-gray-800"
+                    >
+                      Browse Books
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                filteredOrders.map((order) => (
+                  <div
+                    key={order._id}
+                    className="overflow-hidden rounded-xl border bg-white shadow-sm"
+                  >
+                    {/* Order Header */}
+                    <div className="flex flex-col gap-4 border-b bg-gray-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Order
+                        </p>
+
+                        <h2 className="mt-1 font-semibold text-gray-900">
+                          {order.orderNumber}
+                        </h2>
+
+                        <p className="mt-1 text-sm text-gray-500">
+                          {formatDate(order.createdAt)}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(
+                            order.orderStatus
+                          )}`}
+                        >
+                          {order.orderStatus
+                            .charAt(0)
+                            .toUpperCase() +
+                            order.orderStatus.slice(1)}
+                        </span>
+
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${paymentStatusClass(
+                            order.paymentStatus
+                          )}`}
+                        >
+                          {order.paymentStatus
+                            .charAt(0)
+                            .toUpperCase() +
+                            order.paymentStatus.slice(1)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Items */}
+                    <div className="divide-y">
+                      {order.items?.map((item, index) => (
+                        <div
+                          key={
+                            item._id ||
+                            `${order._id}-${index}`
+                          }
+                          className="flex gap-4 p-5"
+                        >
+                          <div className="flex h-16 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100">
+                            {item.image ? (
+                              <img
+                                src={item.image}
+                                alt={item.title}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-2xl">
+                                📚
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900">
+                              {item.title}
+                            </p>
+
+                            <p className="mt-1 text-sm text-gray-500">
+                              Qty: {item.quantity}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="font-semibold text-gray-900">
+                              {formatAmount(
+                                item.price *
+                                  item.quantity
+                              )}
+                            </p>
+
+                            <p className="mt-1 text-xs text-gray-500">
+                              {formatAmount(item.price)} each
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="flex flex-col gap-4 border-t p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs text-gray-500">
+                          Payment
+                        </p>
+
+                        <p className="mt-1 text-sm font-medium capitalize text-gray-900">
+                          {order.paymentMethod ===
+                          "razorpay"
+                            ? "Razorpay"
+                            : "Cash on Delivery"}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-6 sm:justify-end">
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500">
+                            Total
+                          </p>
+
+                          <p className="font-bold text-gray-900">
+                            {formatAmount(order.total)}
+                          </p>
+                        </div>
+
+                        <Link
+                          href={`/account/orders/${order.orderNumber}`}
+                          className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+                        >
+                          View Details
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </section>
         </div>

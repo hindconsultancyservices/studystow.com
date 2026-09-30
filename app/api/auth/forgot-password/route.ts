@@ -1,6 +1,7 @@
+
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import dbConnect from "@/lib/db";
 import User from "@/models/User";
 
@@ -26,10 +27,6 @@ export async function POST(request: Request) {
 
     const user = await User.findOne({ email });
 
-    // --------------------------------------------------------
-    // CHECK USER
-    // --------------------------------------------------------
-
     if (!user) {
       return NextResponse.json(
         {
@@ -40,70 +37,47 @@ export async function POST(request: Request) {
       );
     }
 
-    // --------------------------------------------------------
-    // GENERATE RESET TOKEN
-    // --------------------------------------------------------
-
+    // Generate reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
 
-    // Store only the SHA-256 hash in MongoDB.
+    // Store only SHA-256 hash in MongoDB
     const hashedToken = crypto
       .createHash("sha256")
       .update(resetToken)
       .digest("hex");
 
-    // Token expires after 30 minutes.
-    const resetTokenExpiry = new Date(
+    // Token expires after 30 minutes
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = new Date(
       Date.now() + 30 * 60 * 1000,
     );
 
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = resetTokenExpiry;
-
     await user.save();
 
-    // --------------------------------------------------------
-    // RESET URL
-    // --------------------------------------------------------
-
+    // Reset URL
     const baseUrl =
       process.env.NEXTAUTH_URL ||
       process.env.NEXT_PUBLIC_APP_URL ||
       "http://localhost:3000";
 
     const resetUrl =
-      `${baseUrl}/auth/reset-password?token=` +
+      `${baseUrl}/reset-password?token=` +
       encodeURIComponent(resetToken);
 
-    // --------------------------------------------------------
-    // RESEND SMTP
-    // --------------------------------------------------------
+    // Resend
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY is missing.");
+    }
 
-    const smtpPort = Number(
-      process.env.SMTP_PORT || 465,
-    );
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: smtpPort,
-      secure: smtpPort === 465,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
+    const fromEmail =
+      process.env.RESEND_FROM_EMAIL ||
+      "onboarding@resend.dev";
 
-    // --------------------------------------------------------
-    // SEND EMAIL
-    // --------------------------------------------------------
-
-    await transporter.sendMail({
-      from:
-        process.env.SMTP_FROM ||
-        "onboarding@resend.dev",
-
-      to: user.email,
-
+    const { error: resendError } = await resend.emails.send({
+      from: `StudyStow <${fromEmail}>`,
+      to: [user.email],
       subject: "Reset your StudyStow password",
 
       text: `You requested a password reset for your StudyStow account.
@@ -134,7 +108,6 @@ If you did not request this password reset, you can safely ignore this email.`,
               border: 1px solid #e5e5e5;
             "
           >
-
             <h2
               style="
                 margin: 0 0 16px;
@@ -192,11 +165,23 @@ If you did not request this password reset, you can safely ignore this email.`,
               If you did not request this password reset,
               you can safely ignore this email.
             </p>
-
           </div>
         </div>
       `,
     });
+
+    if (resendError) {
+      console.error("Resend error:", resendError);
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Unable to send the reset email. Please try again later.",
+        },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({
       success: true,

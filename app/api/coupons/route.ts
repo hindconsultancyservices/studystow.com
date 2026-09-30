@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
-import Coupon from "@/models/coupon";
+import Coupon from "@/models/Coupon";
 
 function isAdmin(session: any) {
   return session?.user?.role === "admin";

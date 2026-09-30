@@ -1,14 +1,17 @@
+
 "use client";
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 export default function LoginForm() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -17,7 +20,9 @@ export default function LoginForm() {
 
     setError("");
 
-    if (!email.trim() || !password) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
       setError("Please enter your email and password.");
       return;
     }
@@ -25,25 +30,24 @@ export default function LoginForm() {
     try {
       setLoading(true);
 
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password,
-        }),
+      const result = await signIn("credentials", {
+        email: cleanEmail,
+        password,
+        redirect: false,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data?.message || "Invalid email or password.");
+      if (!result) {
+        setError("Unable to sign in. Please try again.");
         return;
       }
 
-      router.push("/account");
+      if (result.error) {
+        setError("Invalid email or password.");
+        return;
+      }
+
+      // Login successful → stay on Home page
+      router.replace("/");
       router.refresh();
     } catch (error) {
       console.error("Login error:", error);
@@ -56,6 +60,8 @@ export default function LoginForm() {
   return (
     <main className="min-h-screen bg-white text-black">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-12">
+
+        {/* LOGO */}
         <div className="mb-8 text-center">
           <Link href="/" className="inline-block">
             <img
@@ -74,8 +80,11 @@ export default function LoginForm() {
           </p>
         </div>
 
+        {/* LOGIN CARD */}
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
+
+            {/* EMAIL */}
             <div>
               <label
                 htmlFor="email"
@@ -97,6 +106,7 @@ export default function LoginForm() {
               />
             </div>
 
+            {/* PASSWORD */}
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label
@@ -114,19 +124,36 @@ export default function LoginForm() {
                 </Link>
               </div>
 
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter your password"
-                disabled={loading}
-                className="h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-sm outline-none transition placeholder:text-gray-400 focus:border-black focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:bg-gray-100"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-gray-300 bg-white px-4 pr-20 text-sm outline-none transition placeholder:text-gray-400 focus:border-black focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:bg-gray-100"
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowPassword((current) => !current)
+                  }
+                  disabled={loading}
+                  className="absolute right-0 top-0 h-12 px-4 text-xs font-bold text-gray-600 hover:text-black disabled:cursor-not-allowed"
+                  aria-label={
+                    showPassword ? "Hide password" : "Show password"
+                  }
+                >
+                  {showPassword ? "HIDE" : "SHOW"}
+                </button>
+              </div>
             </div>
 
+            {/* ERROR */}
             {error && (
               <div
                 role="alert"
@@ -136,6 +163,7 @@ export default function LoginForm() {
               </div>
             )}
 
+            {/* BUTTON */}
             <button
               type="submit"
               disabled={loading}
@@ -145,6 +173,7 @@ export default function LoginForm() {
             </button>
           </form>
 
+          {/* REGISTER */}
           <div className="mt-6 text-center text-sm text-gray-500">
             Don't have an account?{" "}
             <Link
@@ -156,6 +185,7 @@ export default function LoginForm() {
           </div>
         </div>
 
+        {/* BACK */}
         <div className="mt-6 text-center">
           <Link
             href="/"

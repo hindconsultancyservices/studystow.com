@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
-import Coupon from "@/models/coupon";
+import Coupon from "@/models/Coupon";
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
