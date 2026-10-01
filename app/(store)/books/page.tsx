@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -72,7 +72,6 @@ type ApiBook = {
   title: string;
   slug: string;
   author: string;
-
   category:
     | string
     | {
@@ -81,24 +80,18 @@ type ApiBook = {
         slug?: string;
       }
     | null;
-
   price: number;
   compareAtPrice?: number;
-
   stock: number;
   sku: string;
   isbn?: string;
-
   image?: string;
   images?: string[];
-
   publisher?: string;
   language?: string;
   pages?: number;
-
   featured: boolean;
   published: boolean;
-
   createdAt?: string;
   updatedAt?: string;
 };
@@ -148,10 +141,7 @@ type CategoriesApiResponse = {
 const WISHLIST_KEY = "studystow-wishlist";
 const CART_KEY = "studystow-cart";
 
-function getDiscount(
-  price: number,
-  originalPrice?: number
-) {
+function getDiscount(price: number, originalPrice?: number) {
   if (
     !originalPrice ||
     originalPrice <= price ||
@@ -233,6 +223,7 @@ function convertApiBook(book: ApiBook): Book {
 
 export default function BooksPage() {
   const [books, setBooks] = useState<Book[]>([]);
+
   const [categories, setCategories] = useState<string[]>([
     "All Books",
   ]);
@@ -242,17 +233,15 @@ export default function BooksPage() {
 
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-
   const [message, setMessage] = useState("");
-
   const [searchQuery, setSearchQuery] = useState("");
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   // ------------------------------------------------------------
   // Load localStorage + URL search
   // ------------------------------------------------------------
+
   useEffect(() => {
     try {
       const savedWishlist =
@@ -303,6 +292,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Fetch real books from MongoDB through API
   // ------------------------------------------------------------
+
   useEffect(() => {
     let cancelled = false;
 
@@ -374,6 +364,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Fetch real categories from MongoDB
   // ------------------------------------------------------------
+
   useEffect(() => {
     let cancelled = false;
 
@@ -430,6 +421,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Filter books
   // ------------------------------------------------------------
+
   const filteredBooks = useMemo(() => {
     const query =
       searchQuery.trim().toLowerCase();
@@ -468,6 +460,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Toast helper
   // ------------------------------------------------------------
+
   function showMessage(text: string) {
     setMessage(text);
 
@@ -479,16 +472,12 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Wishlist
   // ------------------------------------------------------------
+
   function saveWishlist(
     nextWishlist: string[]
   ) {
     setWishlist(nextWishlist);
 
-    /*
-     * Store the book objects, not only IDs,
-     * because the existing wishlist page may
-     * already expect book data.
-     */
     const wishlistBooks = books.filter(
       (book) =>
         nextWishlist.includes(book.id) ||
@@ -526,6 +515,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Cart
   // ------------------------------------------------------------
+
   function addToCart(book: Book) {
     if (book.stock <= 0) {
       showMessage(
@@ -589,6 +579,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Reset filters
   // ------------------------------------------------------------
+
   function resetFilters() {
     setSelectedCategory("All Books");
     setSearchQuery("");
@@ -603,6 +594,7 @@ export default function BooksPage() {
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
+
   return (
     <main className="min-h-screen bg-slate-50">
       {/* Toast */}
@@ -612,11 +604,15 @@ export default function BooksPage() {
         </div>
       )}
 
-      {/* Header */}
-      <section className="border-b bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      {/* ======================================================
+          BOOKS HEADER
+          Hidden on mobile
+          Visible from sm/tablet/laptop upward
+         ====================================================== */}
+      <section className="hidden border-b bg-white sm:block">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
           {/* Breadcrumb */}
-          <div className="mb-6 flex items-center gap-2 text-sm text-slate-500">
+          <div className="mb-4 flex items-center gap-1.5 text-xs text-slate-500 sm:mb-6 sm:gap-2 sm:text-sm">
             <Link
               href="/"
               className="transition hover:text-slate-900"
@@ -624,32 +620,32 @@ export default function BooksPage() {
               Home
             </Link>
 
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
 
             <span className="font-medium text-slate-900">
               Books
             </span>
           </div>
 
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end md:gap-5">
             <div>
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-blue-600">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-blue-600 sm:mb-3 sm:gap-2 sm:text-sm">
                 <BookOpen className="h-4 w-4" />
                 StudyStow Books
               </div>
 
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-4xl">
                 Explore Our Books
               </h1>
 
-              <p className="mt-2 max-w-2xl text-slate-600">
+              <p className="mt-1.5 max-w-2xl text-sm leading-5 text-slate-600 sm:mt-2 sm:text-base sm:leading-normal">
                 Discover books across self-help,
                 finance, business, fiction,
                 productivity and more.
               </p>
             </div>
 
-            <div className="text-sm text-slate-500">
+            <div className="text-xs text-slate-500 sm:text-sm">
               <span className="font-semibold text-slate-900">
                 {loading
                   ? "..."
@@ -661,38 +657,16 @@ export default function BooksPage() {
         </div>
       </section>
 
-      {/* Content */}
+      {/* ======================================================
+          CONTENT
+         ====================================================== */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Mobile category filter */}
-        <div className="mb-6 lg:hidden">
-          <label className="mb-2 block text-sm font-semibold text-slate-900">
-            Category
-          </label>
-
-          <select
-            value={selectedCategory}
-            onChange={(event) =>
-              setSelectedCategory(
-                event.target.value
-              )
-            }
-            className="w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-900"
-          >
-            {categories.map(
-              (category) => (
-                <option
-                  key={category}
-                  value={category}
-                >
-                  {category}
-                </option>
-              )
-            )}
-          </select>
-        </div>
-
         <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
-          {/* Sidebar */}
+
+          {/* ==================================================
+              DESKTOP CATEGORY SIDEBAR
+              Hidden on mobile
+             ================================================== */}
           <aside className="hidden lg:block">
             <div className="sticky top-6 rounded-2xl border bg-white p-5 shadow-sm">
               <div className="mb-5 flex items-center gap-2">
@@ -729,7 +703,9 @@ export default function BooksPage() {
             </div>
           </aside>
 
-          {/* Books */}
+          {/* ==================================================
+              BOOKS
+             ================================================== */}
           <div>
             {/* Search info */}
             {searchQuery && (
@@ -843,8 +819,7 @@ export default function BooksPage() {
                                 <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
                               )}
 
-                              {discount >
-                                0 && (
+                              {discount > 0 && (
                                 <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
                                   {discount}% OFF
                                 </span>
@@ -883,23 +858,16 @@ export default function BooksPage() {
                             href={`/books/${book.slug}`}
                           >
                             <p className="mb-1 text-xs font-medium text-blue-600">
-                              {
-                                book.category
-                              }
+                              {book.category}
                             </p>
 
                             <h2 className="line-clamp-2 min-h-[40px] text-sm font-semibold text-slate-900 transition group-hover:text-blue-600">
-                              {
-                                book.title
-                              }
+                              {book.title}
                             </h2>
                           </Link>
 
                           <p className="mt-1 truncate text-xs text-slate-500">
-                            by{" "}
-                            {
-                              book.author
-                            }
+                            by {book.author}
                           </p>
 
                           {/* Price */}
@@ -925,27 +893,22 @@ export default function BooksPage() {
 
                           {/* SKU */}
                           <p className="mt-1 text-[11px] text-slate-400">
-                            SKU:{" "}
-                            {book.sku}
+                            SKU: {book.sku}
                           </p>
 
                           {/* Stock */}
                           <p
                             className={`mt-1 text-xs font-medium ${
-                              book.stock <=
-                              0
+                              book.stock <= 0
                                 ? "text-red-600"
-                                : book.stock <=
-                                  10
+                                : book.stock <= 10
                                 ? "text-orange-600"
                                 : "text-green-600"
                             }`}
                           >
-                            {book.stock <=
-                            0
+                            {book.stock <= 0
                               ? "Out of stock"
-                              : book.stock <=
-                                10
+                              : book.stock <= 10
                               ? `Only ${book.stock} left`
                               : "In stock"}
                           </p>
@@ -954,20 +917,16 @@ export default function BooksPage() {
                           <button
                             type="button"
                             disabled={
-                              book.stock <=
-                              0
+                              book.stock <= 0
                             }
                             onClick={() =>
-                              addToCart(
-                                book
-                              )
+                              addToCart(book)
                             }
                             className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                           >
                             <ShoppingCart className="h-4 w-4" />
 
-                            {book.stock <=
-                            0
+                            {book.stock <= 0
                               ? "Out of Stock"
                               : "Add to Cart"}
                           </button>
@@ -993,9 +952,7 @@ export default function BooksPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    resetFilters
-                  }
+                  onClick={resetFilters}
                   className="mt-5 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   Show All Books
