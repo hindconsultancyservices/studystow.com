@@ -10,6 +10,19 @@ import {
   User,
   LogIn,
   UserPlus,
+  Menu,
+  X,
+  BookOpen,
+  Home,
+  Grid2X2,
+  HelpCircle,
+  Truck,
+  RotateCcw,
+  ShieldCheck,
+  FileText,
+  Info,
+  Mail,
+  UserCircle,
 } from "lucide-react";
 
 type CartResponse = {
@@ -24,6 +37,7 @@ export default function Header() {
 
   const [cartCount, setCartCount] = useState(0);
   const [cartLoading, setCartLoading] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   async function loadCartCount() {
     /*
@@ -58,7 +72,6 @@ export default function Header() {
 
       /*
        * Prefer server-calculated itemCount.
-       * This comes directly from MongoDB-backed /api/cart.
        */
       if (
         typeof data.itemCount === "number" &&
@@ -103,17 +116,13 @@ export default function Header() {
 
     /*
      * Same-tab cart updates.
-     *
-     * BookDetails dispatches:
-     * studystow-cart-updated
      */
     function handleCartUpdate() {
       loadCartCount();
     }
 
     /*
-     * When user returns to the tab/page,
-     * refresh the database cart count.
+     * Refresh cart when user returns to tab.
      */
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") {
@@ -144,14 +153,70 @@ export default function Header() {
     };
   }, [status, session?.user?.id]);
 
+  /*
+   * Lock page scrolling while mobile menu is open.
+   */
+  useEffect(() => {
+    if (!mobileMenuOpen) {
+      document.body.style.overflow = "";
+      return;
+    }
+
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
+
+  /*
+   * Close mobile menu when navigating.
+   */
+  function closeMobileMenu() {
+    setMobileMenuOpen(false);
+  }
+
   const isLoggedIn = status === "authenticated";
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-white">
+    <header className="sticky top-0 z-[100] border-b bg-white">
+
       {/* ======================================================
           HEADER TOP ROW
           ====================================================== */}
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:h-16 sm:gap-4 sm:px-6 lg:px-8">
+
+        {/* ====================================================
+            MOBILE MENU BUTTON
+            ==================================================== */}
+        <button
+          type="button"
+          aria-label={
+            mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"
+          }
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((open) => !open)}
+          className="
+            flex
+            h-9
+            w-9
+            shrink-0
+            items-center
+            justify-center
+            rounded-lg
+            text-slate-700
+            transition
+            hover:bg-slate-50
+            hover:text-slate-950
+            md:hidden
+          "
+        >
+          {mobileMenuOpen ? (
+            <X className="h-5 w-5" />
+          ) : (
+            <Menu className="h-5 w-5" />
+          )}
+        </button>
 
         {/* ====================================================
             LOGO
@@ -160,6 +225,7 @@ export default function Header() {
           href="/"
           className="flex shrink-0 items-center"
           aria-label="StudyStow Home"
+          onClick={closeMobileMenu}
         >
           <span
             role="img"
@@ -189,6 +255,7 @@ export default function Header() {
             DESKTOP NAVIGATION
             ==================================================== */}
         <nav className="hidden items-center gap-6 md:flex">
+
           <Link
             href="/"
             className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
@@ -209,6 +276,7 @@ export default function Header() {
           >
             Categories
           </Link>
+
         </nav>
 
         {/* ====================================================
@@ -219,6 +287,7 @@ export default function Header() {
           className="ml-auto hidden w-full max-w-md md:block"
         >
           <div className="relative">
+
             <Search
               className="
                 absolute
@@ -252,6 +321,7 @@ export default function Header() {
                 focus:bg-white
               "
             />
+
           </div>
         </form>
 
@@ -262,12 +332,13 @@ export default function Header() {
 
           {/* ==================================================
               WISHLIST
+              Desktop only
               ================================================== */}
           <Link
             href="/wishlist"
             aria-label="Wishlist"
             className="
-              flex
+              hidden
               h-9
               w-9
               items-center
@@ -277,6 +348,7 @@ export default function Header() {
               transition
               hover:bg-slate-50
               hover:text-slate-900
+              sm:flex
               sm:h-10
               sm:w-10
               sm:rounded-xl
@@ -338,7 +410,7 @@ export default function Header() {
           </Link>
 
           {/* ==================================================
-              MOBILE ACCOUNT ICON
+              MOBILE ACCOUNT
               ================================================== */}
           <Link
             href={isLoggedIn ? "/account" : "/login"}
@@ -399,6 +471,7 @@ export default function Header() {
             </Link>
           ) : (
             <div className="hidden items-center gap-2 sm:flex">
+
               <Link
                 href="/login"
                 className="
@@ -443,8 +516,10 @@ export default function Header() {
                 <UserPlus className="h-4 w-4" />
                 Register
               </Link>
+
             </div>
           )}
+
         </div>
       </div>
 
@@ -461,7 +536,9 @@ export default function Header() {
         "
       >
         <form action="/search">
+
           <div className="relative">
+
             <Search
               className="
                 absolute
@@ -496,9 +573,432 @@ export default function Header() {
                 focus:bg-white
               "
             />
+
           </div>
+
         </form>
       </div>
+
+      {/* ======================================================
+          MOBILE MENU OVERLAY + DRAWER
+          ====================================================== */}
+          {mobileMenuOpen && (
+          <div className="fixed inset-0 z-[110] md:hidden">
+
+          {/* ==================================================
+              BACKDROP
+              ================================================== */}
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={closeMobileMenu}
+            className="
+              absolute
+              inset-0
+              bg-slate-950/40
+              backdrop-blur-[2px]
+            "
+          />
+
+          {/* ==================================================
+              MENU PANEL
+              ================================================== */}
+          <aside
+            className="
+            absolute
+            left-0
+            top-0
+            z-[120]
+            flex
+            h-full
+            w-[88%]
+            max-w-sm
+            flex-col
+            bg-white
+            shadow-2xl
+          "
+          >
+
+            {/* ==================================================
+                MENU HEADER
+                ================================================== */}
+            <div className="flex h-16 shrink-0 items-center justify-between border-b px-4">
+
+              <Link
+                href="/"
+                onClick={closeMobileMenu}
+                className="flex items-center"
+              >
+                <span
+                  role="img"
+                  aria-label="Studystow.com"
+                  className="
+                    block
+                    h-10
+                    w-[130px]
+                    bg-[#155DFC]
+                  "
+                  style={{
+                    maskImage: "url('/images/logo/logo.png')",
+                    WebkitMaskImage: "url('/images/logo/logo.png')",
+                    maskRepeat: "no-repeat",
+                    WebkitMaskRepeat: "no-repeat",
+                    maskPosition: "left center",
+                    WebkitMaskPosition: "left center",
+                    maskSize: "contain",
+                    WebkitMaskSize: "contain",
+                  }}
+                />
+              </Link>
+
+              <button
+                type="button"
+                onClick={closeMobileMenu}
+                aria-label="Close menu"
+                className="
+                  flex
+                  h-9
+                  w-9
+                  items-center
+                  justify-center
+                  rounded-lg
+                  text-slate-600
+                  transition
+                  hover:bg-slate-100
+                  hover:text-slate-950
+                "
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+            </div>
+
+            {/* ==================================================
+                MENU CONTENT
+                ================================================== */}
+            <div className="flex-1 overflow-y-auto pb-6">
+
+              {/* ==================================================
+                  PRIMARY SHOP LINKS
+                  ================================================== */}
+              <div className="border-b px-3 py-3">
+
+                <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Shop
+                </p>
+
+                {/* BOOKS */}
+                <Link
+                  href="/books"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    bg-slate-950
+                    px-3
+                    py-3.5
+                    text-sm
+                    font-semibold
+                    text-white
+                    transition
+                    active:scale-[0.99]
+                  "
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10">
+                    <BookOpen className="h-4 w-4" />
+                  </span>
+
+                  <span>Books</span>
+                </Link>
+
+                {/* CATEGORIES */}
+                <Link
+                  href="/category"
+                  onClick={closeMobileMenu}
+                  className="
+                    mt-2
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3.5
+                    text-sm
+                    font-semibold
+                    text-slate-800
+                    transition
+                    hover:bg-slate-50
+                    active:bg-slate-100
+                  "
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+                    <Grid2X2 className="h-4 w-4 text-slate-700" />
+                  </span>
+
+                  <span>Categories</span>
+                </Link>
+
+              </div>
+
+              {/* ==================================================
+                  QUICK ACCESS
+                  ================================================== */}
+              <div className="border-b px-3 py-3">
+
+                <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Quick Access
+                </p>
+
+                <Link
+                  href="/"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <Home className="h-4 w-4 text-slate-500" />
+                  Home
+                </Link>
+
+                <Link
+                  href="/search"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <Search className="h-4 w-4 text-slate-500" />
+                  Search Books
+                </Link>
+
+                <Link
+                  href="/wishlist"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <Heart className="h-4 w-4 text-slate-500" />
+                  Wishlist
+                </Link>
+
+                <Link
+                  href={isLoggedIn ? "/account" : "/login"}
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <UserCircle className="h-4 w-4 text-slate-500" />
+                  {isLoggedIn ? "My Account" : "Log in"}
+                </Link>
+
+              </div>
+
+              {/* ==================================================
+                  INFORMATION
+                  ================================================== */}
+              <div className="border-b px-3 py-3">
+
+                <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Information
+                </p>
+
+                <Link
+                  href="/about"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <Info className="h-4 w-4 text-slate-500" />
+                  About Us
+                </Link>
+
+                <Link
+                  href="/contact"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <Mail className="h-4 w-4 text-slate-500" />
+                  Contact Us
+                </Link>
+
+                <Link
+                  href="/faq"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <HelpCircle className="h-4 w-4 text-slate-500" />
+                  FAQ
+                </Link>
+
+              </div>
+
+              {/* ==================================================
+                  CUSTOMER SUPPORT
+                  ================================================== */}
+              <div className="px-3 py-3">
+
+                <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Customer Support
+                </p>
+
+                <Link
+                  href="/shipping-policy"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <Truck className="h-4 w-4 text-slate-500" />
+                  Shipping Policy
+                </Link>
+
+                <Link
+                  href="/refund-policy"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <RotateCcw className="h-4 w-4 text-slate-500" />
+                  Refund Policy
+                </Link>
+
+                <Link
+                  href="/privacy-policy"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <ShieldCheck className="h-4 w-4 text-slate-500" />
+                  Privacy Policy
+                </Link>
+
+                <Link
+                  href="/terms-and-conditions"
+                  onClick={closeMobileMenu}
+                  className="
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-sm
+                    text-slate-700
+                    transition
+                    hover:bg-slate-50
+                  "
+                >
+                  <FileText className="h-4 w-4 text-slate-500" />
+                  Terms & Conditions
+                </Link>
+
+              </div>
+
+            </div>
+          </aside>
+        </div>
+      )}
     </header>
   );
 }
