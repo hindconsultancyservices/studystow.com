@@ -8,9 +8,11 @@ import {
   ArrowRight,
   ShoppingBag,
 } from "lucide-react";
+import { revalidatePath } from "next/cache";
 
 import { connectDB } from "@/lib/db";
 import Order from "@/models/Order";
+import Book from "@/models/Book";
 
 type OrderSuccessPageProps = {
   params: Promise<{
@@ -33,6 +35,81 @@ export default async function OrderSuccessPage({
     notFound();
   }
 
+  /*
+   * Cancel Order
+   */
+  async function cancelOrder() {
+    "use server";
+
+    await connectDB();
+
+    const currentOrder = await Order.findById(orderId);
+
+    if (!currentOrder) {
+      throw new Error("Order not found.");
+    }
+
+    /*
+     * Only pending and confirmed orders
+     * can be cancelled.
+     */
+    if (
+      currentOrder.orderStatus !== "pending" &&
+      currentOrder.orderStatus !== "confirmed"
+    ) {
+      throw new Error(
+        "This order can no longer be cancelled."
+      );
+    }
+
+    /*
+     * Paid Razorpay orders should not be cancelled
+     * until the refund process is handled.
+     */
+    if (
+      String(currentOrder.paymentMethod).toLowerCase() ===
+        "razorpay" &&
+      String(currentOrder.paymentStatus).toLowerCase() ===
+        "paid"
+    ) {
+      throw new Error(
+        "Paid online orders cannot be cancelled until the refund is processed."
+      );
+    }
+
+    /*
+     * Change order status.
+     */
+    currentOrder.orderStatus = "cancelled";
+    await currentOrder.save();
+
+    /*
+     * Restore stock.
+     */
+    for (const item of currentOrder.items) {
+      if (!item.book) {
+        continue;
+      }
+
+      await Book.findByIdAndUpdate(
+        item.book,
+        {
+          $inc: {
+            stock: Number(item.quantity || 0),
+          },
+        }
+      );
+    }
+
+    revalidatePath("/account/orders");
+    revalidatePath(
+      `/account/orders/${currentOrder.orderNumber}`
+    );
+    revalidatePath(
+      `/order-success/${currentOrder._id}`
+    );
+  }
+
   const items = Array.isArray(order.items)
     ? order.items
     : [];
@@ -45,6 +122,19 @@ export default async function OrderSuccessPage({
       timeStyle: "short",
     }).format(new Date(date));
   };
+
+  const canCancel =
+    order.orderStatus === "pending" ||
+    order.orderStatus === "confirmed";
+
+  const razorpayPaid =
+    String(order.paymentMethod).toLowerCase() ===
+      "razorpay" &&
+    String(order.paymentStatus).toLowerCase() ===
+      "paid";
+
+  const showCancelButton =
+    canCancel && !razorpayPaid;
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -147,7 +237,10 @@ export default async function OrderSuccessPage({
                         <span>
                           Price:{" "}
                           <strong className="text-slate-900">
-                            ₹{Number(item.price).toLocaleString("en-IN")}
+                            ₹
+                            {Number(
+                              item.price
+                            ).toLocaleString("en-IN")}
                           </strong>
                         </span>
                       </div>
@@ -233,6 +326,7 @@ export default async function OrderSuccessPage({
               </div>
 
               <div className="space-y-4 p-5">
+                {/* Subtotal */}
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">
                     Subtotal
@@ -246,6 +340,7 @@ export default async function OrderSuccessPage({
                   </span>
                 </div>
 
+                {/* Shipping */}
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">
                     Shipping
@@ -254,12 +349,13 @@ export default async function OrderSuccessPage({
                   <span className="font-medium text-slate-900">
                     {Number(order.shipping) === 0
                       ? "Free"
-                      : `₹${Number(order.shipping).toLocaleString(
-                          "en-IN"
-                        )}`}
+                      : `₹${Number(
+                          order.shipping
+                        ).toLocaleString("en-IN")}`}
                   </span>
                 </div>
 
+                {/* Discount */}
                 {Number(order.discount) > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">
@@ -268,13 +364,14 @@ export default async function OrderSuccessPage({
 
                     <span className="font-medium text-green-600">
                       -₹
-                      {Number(order.discount).toLocaleString(
-                        "en-IN"
-                      )}
+                      {Number(
+                        order.discount
+                      ).toLocaleString("en-IN")}
                     </span>
                   </div>
                 )}
 
+                {/* Tax */}
                 {Number(order.tax) > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">
@@ -290,6 +387,7 @@ export default async function OrderSuccessPage({
                   </div>
                 )}
 
+                {/* Total */}
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-900">
@@ -312,15 +410,13 @@ export default async function OrderSuccessPage({
                   </p>
 
                   <p className="mt-1 font-semibold capitalize text-slate-900">
-                    {order.paymentMethod ===
-                    "razorpay"
+                    {order.paymentMethod === "razorpay"
                       ? "Razorpay"
                       : "Cash on Delivery"}
                   </p>
 
                   <p className="mt-1 text-xs capitalize text-slate-500">
-                    Status:{" "}
-                    {order.paymentStatus}
+                    Status: {order.paymentStatus}
                   </p>
                 </div>
 
@@ -334,6 +430,21 @@ export default async function OrderSuccessPage({
                     {order.orderStatus}
                   </p>
                 </div>
+
+                {/* Cancel Order */}
+                {showCancelButton && (
+                  <form
+                    action={cancelOrder}
+                    className="pt-1"
+                  >
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                    >
+                      Cancel Order
+                    </button>
+                  </form>
+                )}
 
                 {/* Buttons */}
                 <div className="space-y-3 pt-2">

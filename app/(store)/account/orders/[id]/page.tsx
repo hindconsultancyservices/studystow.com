@@ -8,11 +8,14 @@ import {
   Truck,
   MapPin,
   CreditCard,
+  XCircle,
 } from "lucide-react";
+import { revalidatePath } from "next/cache";
 
 import connectDB from "@/lib/db";
 import { authOptions } from "@/lib/auth";
 import Order from "@/models/Order";
+import Book from "@/models/Book";
 import { getServerSession } from "next-auth";
 
 type PageProps = {
@@ -81,15 +84,132 @@ export default async function OrderDetailsPage({
 
   const { id } = await params;
 
+  /*
+   * Server Action
+   * Cancels the current user's order and restores stock.
+   */
+  async function cancelOrder() {
+    "use server";
+
+    const currentSession = await getServerSession(authOptions);
+
+    if (!currentSession?.user?.id) {
+      redirect("/login");
+    }
+
+    await connectDB();
+
+    const order = await Order.findOne({
+      orderNumber: id,
+      customer: currentSession.user.id,
+    });
+
+    if (!order) {
+      throw new Error("Order not found.");
+    }
+
+    const currentStatus = String(
+      order.orderStatus || "pending"
+    ).toLowerCase();
+
+    if (
+      currentStatus !== "pending" &&
+      currentStatus !== "confirmed"
+    ) {
+      throw new Error(
+        "This order can no longer be cancelled."
+      );
+    }
+
+    /*
+     * Paid Razorpay orders should not be cancelled without
+     * processing an actual refund first.
+     */
+    const paymentStatus = String(
+      order.paymentStatus || "pending"
+    ).toLowerCase();
+
+    if (paymentStatus === "paid") {
+      throw new Error(
+        "Paid online orders cannot be cancelled until the refund is processed."
+      );
+    }
+
+    /*
+     * Change status first.
+     *
+     * This also protects against cancelling the same order
+     * twice at the same time.
+     */
+    const updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        customer: currentSession.user.id,
+        orderStatus: {
+          $in: ["pending", "confirmed"],
+        },
+      },
+      {
+        $set: {
+          orderStatus: "cancelled",
+        },
+      },
+      {
+        new: true,
+      }
+    );
+
+    if (!updatedOrder) {
+      throw new Error(
+        "This order can no longer be cancelled."
+      );
+    }
+
+    /*
+     * Restore stock for every ordered book.
+     */
+    const items = Array.isArray(updatedOrder.items)
+      ? updatedOrder.items
+      : [];
+
+    for (const item of items) {
+      const quantity = Number(item.quantity || 0);
+
+      if (!quantity || quantity <= 0 || !item.book) {
+        continue;
+      }
+
+      try {
+        await Book.findByIdAndUpdate(
+          item.book,
+          {
+            $inc: {
+              stock: quantity,
+            },
+          }
+        );
+      } catch (stockError) {
+        console.error(
+          "Failed to restore stock for cancelled order:",
+          stockError
+        );
+      }
+    }
+
+    /*
+     * Refresh both order pages after cancellation.
+     */
+    revalidatePath("/account/orders");
+    revalidatePath(`/account/orders/${id}`);
+  }
+
   await connectDB();
 
   /*
-   * IMPORTANT:
-   * URL is /account/orders/ST-111976-338079
+   * URL:
+   * /account/orders/ST-111976-338079
    *
-   * So first search by orderNumber.
-   * Also check customer so one user cannot open
-   * another user's order.
+   * Only the logged-in user's order can be opened.
    */
   const orderData = await Order.findOne({
     orderNumber: id,
@@ -107,7 +227,9 @@ export default async function OrderDetailsPage({
 
   const order = orderData as any;
 
-  const items = Array.isArray(order.items) ? order.items : [];
+  const items = Array.isArray(order.items)
+    ? order.items
+    : [];
 
   const subtotal = Number(order.subtotal || 0);
   const shipping = Number(order.shipping || 0);
@@ -116,6 +238,19 @@ export default async function OrderDetailsPage({
   const total = Number(order.total || 0);
 
   const address = order.shippingAddress || {};
+
+  const orderStatus = String(
+    order.orderStatus || "pending"
+  ).toLowerCase();
+
+  const paymentStatus = String(
+    order.paymentStatus || "pending"
+  ).toLowerCase();
+
+  const canCancel =
+    (orderStatus === "pending" ||
+      orderStatus === "confirmed") &&
+    paymentStatus !== "paid";
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -151,11 +286,18 @@ export default async function OrderDetailsPage({
                 order.orderStatus || "pending"
               )}`}
             >
-              {getStatusIcon(order.orderStatus || "pending")}
-              {String(order.orderStatus || "pending")
+              {getStatusIcon(
+                order.orderStatus || "pending"
+              )}
+
+              {String(
+                order.orderStatus || "pending"
+              )
                 .charAt(0)
                 .toUpperCase() +
-                String(order.orderStatus || "pending").slice(1)}
+                String(
+                  order.orderStatus || "pending"
+                ).slice(1)}
             </span>
           </div>
         </div>
@@ -179,116 +321,121 @@ export default async function OrderDetailsPage({
 
               <div className="divide-y divide-slate-200">
                 {items.length > 0 ? (
-                  items.map((item: any, index: number) => {
-                    const book =
-                      item.book &&
-                      typeof item.book === "object"
-                        ? item.book
-                        : null;
+                  items.map(
+                    (item: any, index: number) => {
+                      const book =
+                        item.book &&
+                        typeof item.book === "object"
+                          ? item.book
+                          : null;
 
-                    /*
-                     * MongoDB Order snapshot is used as fallback.
-                     * Normally populated Book data will be shown.
-                     */
-                    const title =
-                      book?.title ||
-                      item.title ||
-                      "Book";
+                      const title =
+                        book?.title ||
+                        item.title ||
+                        "Book";
 
-                    const author =
-                      book?.author ||
-                      item.author ||
-                      "";
+                      const author =
+                        book?.author ||
+                        item.author ||
+                        "";
 
-                    const image =
-                      book?.image ||
-                      item.image ||
-                      "";
+                      const image =
+                        book?.image ||
+                        item.image ||
+                        "";
 
-                    const slug =
-                      book?.slug ||
-                      "";
+                      const slug =
+                        book?.slug || "";
 
-                    const price = Number(
-                      item.price || book?.price || 0
-                    );
+                      const price = Number(
+                        item.price ||
+                          book?.price ||
+                          0
+                      );
 
-                    const quantity = Number(
-                      item.quantity || 0
-                    );
+                      const quantity = Number(
+                        item.quantity || 0
+                      );
 
-                    return (
-                      <div
-                        key={
-                          item._id?.toString() ||
-                          `${item.book?._id || item.book || "book"}-${index}`
-                        }
-                        className="flex gap-4 p-5 sm:p-6"
-                      >
-                        {/* Image */}
-                        <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
-                          {image ? (
-                            <img
-                              src={image}
-                              alt={title}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <Package className="h-8 w-8 text-slate-400" />
-                          )}
-                        </div>
+                      return (
+                        <div
+                          key={
+                            item._id?.toString() ||
+                            `${
+                              item.book?._id ||
+                              item.book ||
+                              "book"
+                            }-${index}`
+                          }
+                          className="flex gap-4 p-5 sm:p-6"
+                        >
+                          {/* Image */}
+                          <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                            {image ? (
+                              <img
+                                src={image}
+                                alt={title}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Package className="h-8 w-8 text-slate-400" />
+                            )}
+                          </div>
 
-                        {/* Details */}
-                        <div className="min-w-0 flex-1">
-                          {slug ? (
-                            <Link
-                              href={`/books/${slug}`}
-                              className="text-base font-bold text-slate-950 hover:underline"
-                            >
-                              {title}
-                            </Link>
-                          ) : (
-                            <h3 className="text-base font-bold text-slate-950">
-                              {title}
-                            </h3>
-                          )}
+                          {/* Details */}
+                          <div className="min-w-0 flex-1">
+                            {slug ? (
+                              <Link
+                                href={`/books/${slug}`}
+                                className="text-base font-bold text-slate-950 hover:underline"
+                              >
+                                {title}
+                              </Link>
+                            ) : (
+                              <h3 className="text-base font-bold text-slate-950">
+                                {title}
+                              </h3>
+                            )}
 
-                          {author ? (
-                            <p className="mt-1 text-sm text-slate-500">
-                              by {author}
+                            {author ? (
+                              <p className="mt-1 text-sm text-slate-500">
+                                by {author}
+                              </p>
+                            ) : null}
+
+                            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                              <span className="text-slate-500">
+                                Quantity:{" "}
+                                <strong className="text-slate-900">
+                                  {quantity}
+                                </strong>
+                              </span>
+
+                              <span className="text-slate-500">
+                                Price:{" "}
+                                <strong className="text-slate-900">
+                                  {money(price)}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Total */}
+                          <div className="shrink-0 text-right">
+                            <p className="text-xs text-slate-500">
+                              Item Total
                             </p>
-                          ) : null}
 
-                          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-                            <span className="text-slate-500">
-                              Quantity:{" "}
-                              <strong className="text-slate-900">
-                                {quantity}
-                              </strong>
-                            </span>
-
-                            <span className="text-slate-500">
-                              Price:{" "}
-                              <strong className="text-slate-900">
-                                {money(price)}
-                              </strong>
-                            </span>
+                            <p className="mt-1 font-bold text-slate-950">
+                              {money(
+                                price * quantity
+                              )}
+                            </p>
                           </div>
                         </div>
-
-                        {/* Total */}
-                        <div className="shrink-0 text-right">
-                          <p className="text-xs text-slate-500">
-                            Item Total
-                          </p>
-
-                          <p className="mt-1 font-bold text-slate-950">
-                            {money(price * quantity)}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })
+                      );
+                    }
+                  )
                 ) : (
                   <div className="p-8 text-center text-sm text-slate-500">
                     No items were found for this order.
@@ -328,13 +475,19 @@ export default async function OrderDetailsPage({
 
                 <p className="mt-3 text-sm leading-6 text-slate-600">
                   {address.addressLine1}
+
                   {address.addressLine2
                     ? `, ${address.addressLine2}`
                     : ""}
+
                   <br />
+
                   {address.city}, {address.state}
+
                   <br />
+
                   {address.pincode}
+
                   {address.country
                     ? `, ${address.country}`
                     : ""}
@@ -383,12 +536,14 @@ export default async function OrderDetailsPage({
 
                   <span className="font-semibold text-slate-900">
                     {String(
-                      order.paymentStatus || "pending"
+                      order.paymentStatus ||
+                        "pending"
                     )
                       .charAt(0)
                       .toUpperCase() +
                       String(
-                        order.paymentStatus || "pending"
+                        order.paymentStatus ||
+                          "pending"
                       ).slice(1)}
                   </span>
                 </div>
@@ -459,6 +614,22 @@ export default async function OrderDetailsPage({
                 </div>
               </div>
             </section>
+
+            {/* Cancel Order */}
+            {canCancel ? (
+              <form
+                action={cancelOrder}
+                className="w-full"
+              >
+                <button
+                  type="submit"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Cancel Order
+                </button>
+              </form>
+            ) : null}
 
             <Link
               href="/books"

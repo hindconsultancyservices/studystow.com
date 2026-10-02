@@ -82,6 +82,98 @@ export default function OrdersPage() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
 
+  const [cancellingOrderId, setCancellingOrderId] =
+    useState<string | null>(null);
+
+  async function loadOrders(showLoading = true) {
+    try {
+      if (showLoading) {
+        setLoading(true);
+      }
+
+      setError("");
+
+      const email = session?.user?.email?.trim();
+
+      if (!email) {
+        throw new Error("User email not found.");
+      }
+
+      const userResponse = await fetch(
+        `/api/users?search=${encodeURIComponent(email)}&limit=1`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      let userData: ApiResponse<User[]> | null = null;
+
+      try {
+        userData = await userResponse.json();
+      } catch {
+        userData = null;
+      }
+
+      if (!userResponse.ok || !userData?.success) {
+        throw new Error(
+          userData?.message || "Unable to load your account."
+        );
+      }
+
+      const users = extractArray<User>(userData.data);
+      const currentUser = users[0];
+
+      if (!currentUser?._id) {
+        throw new Error("User account not found.");
+      }
+
+      setUser(currentUser);
+
+      const ordersResponse = await fetch(
+        `/api/orders?customer=${encodeURIComponent(
+          currentUser._id
+        )}&limit=100`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      let ordersData: ApiResponse<Order[]> | null = null;
+
+      try {
+        ordersData = await ordersResponse.json();
+      } catch {
+        ordersData = null;
+      }
+
+      if (!ordersResponse.ok || !ordersData?.success) {
+        throw new Error(
+          ordersData?.message || "Unable to load your orders."
+        );
+      }
+
+      const loadedOrders = extractArray<Order>(ordersData.data);
+
+      setOrders(loadedOrders);
+    } catch (err) {
+      console.error("Orders loading error:", err);
+
+      setOrders([]);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load your orders."
+      );
+    } finally {
+      if (showLoading) {
+        setLoading(false);
+      }
+    }
+  }
+
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
       return;
@@ -89,7 +181,7 @@ export default function OrdersPage() {
 
     let mounted = true;
 
-    async function loadOrders() {
+    async function initialLoad() {
       try {
         setLoading(true);
         setError("");
@@ -100,9 +192,6 @@ export default function OrdersPage() {
           throw new Error("User email not found.");
         }
 
-        /*
-         * Get the logged-in user's MongoDB ID.
-         */
         const userResponse = await fetch(
           `/api/users?search=${encodeURIComponent(email)}&limit=1`,
           {
@@ -136,9 +225,6 @@ export default function OrdersPage() {
 
         setUser(currentUser);
 
-        /*
-         * Get only the logged-in user's orders.
-         */
         const ordersResponse = await fetch(
           `/api/orders?customer=${encodeURIComponent(
             currentUser._id
@@ -176,6 +262,7 @@ export default function OrdersPage() {
         if (!mounted) return;
 
         setOrders([]);
+
         setError(
           err instanceof Error
             ? err.message
@@ -188,12 +275,83 @@ export default function OrdersPage() {
       }
     }
 
-    loadOrders();
+    initialLoad();
 
     return () => {
       mounted = false;
     };
   }, [sessionStatus, session?.user?.email]);
+
+  async function cancelOrder(order: Order) {
+    const orderId = order.orderNumber || order._id;
+
+    if (!orderId) {
+      setError("Order ID is missing.");
+      return;
+    }
+
+    const status = normalizeStatus(order.orderStatus);
+
+    if (status !== "pending" && status !== "confirmed") {
+      setError("This order can no longer be cancelled.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to cancel order ${
+        order.orderNumber || order._id
+      }?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setCancellingOrderId(order._id);
+      setError("");
+
+      const response = await fetch(
+        `/api/orders/${encodeURIComponent(orderId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            action: "cancel",
+          }),
+        }
+      );
+
+      let data: ApiResponse<unknown> | null = null;
+
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          data?.message || "Unable to cancel this order."
+        );
+      }
+
+      await loadOrders(false);
+    } catch (err) {
+      console.error("Cancel order error:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to cancel this order."
+      );
+    } finally {
+      setCancellingOrderId(null);
+    }
+  }
 
   const filteredOrders = useMemo(() => {
     if (filter === "all") {
@@ -302,6 +460,7 @@ export default function OrdersPage() {
         <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="animate-pulse">
             <div className="h-8 w-48 rounded bg-gray-200" />
+
             <div className="mt-3 h-4 w-64 rounded bg-gray-200" />
 
             <div className="mt-8 grid gap-6 lg:grid-cols-4">
@@ -429,8 +588,6 @@ export default function OrdersPage() {
                 Addresses
               </Link>
 
-              
-
               <button
                 type="button"
                 onClick={() =>
@@ -514,6 +671,13 @@ export default function OrdersPage() {
                     ? order.items
                     : [];
 
+                  const canCancel =
+                    orderStatus === "pending" ||
+                    orderStatus === "confirmed";
+
+                  const isCancelling =
+                    cancellingOrderId === order._id;
+
                   return (
                     <article
                       key={order._id}
@@ -527,8 +691,7 @@ export default function OrdersPage() {
                           </p>
 
                           <h2 className="mt-1 font-semibold text-gray-900">
-                            {order.orderNumber ||
-                              order._id}
+                            {order.orderNumber || order._id}
                           </h2>
 
                           <p className="mt-1 text-sm text-gray-500">
@@ -559,8 +722,8 @@ export default function OrdersPage() {
                       <div className="divide-y">
                         {orderItems.length === 0 ? (
                           <div className="p-5 text-sm text-gray-500">
-                            No item details available for
-                            this order.
+                            No item details available for this
+                            order.
                           </div>
                         ) : (
                           orderItems.map((item, index) => {
@@ -626,7 +789,8 @@ export default function OrdersPage() {
                       </div>
 
                       {/* Footer */}
-                      <div className="flex flex-col gap-4 border-t p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-col gap-5 border-t p-5 sm:flex-row sm:items-center sm:justify-between">
+                        {/* Payment */}
                         <div>
                           <p className="text-xs text-gray-500">
                             Payment
@@ -639,8 +803,10 @@ export default function OrdersPage() {
                           </p>
                         </div>
 
-                        <div className="flex items-center justify-between gap-6 sm:justify-end">
-                          <div className="text-right">
+                        {/* Total + Actions */}
+                        <div className="flex w-full flex-col gap-4 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+                          {/* Total */}
+                          <div className="text-left sm:mr-2 sm:text-right">
                             <p className="text-xs text-gray-500">
                               Total
                             </p>
@@ -650,15 +816,33 @@ export default function OrdersPage() {
                             </p>
                           </div>
 
-                          <Link
-                            href={`/account/orders/${
-                              order.orderNumber ||
-                              order._id
-                            }`}
-                            className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-900 hover:bg-gray-50"
-                          >
-                            View Details
-                          </Link>
+                          {/* Actions */}
+                          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+                            {canCancel && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  cancelOrder(order)
+                                }
+                                disabled={isCancelling}
+                                className="w-full rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                              >
+                                {isCancelling
+                                  ? "Cancelling..."
+                                  : "Cancel Order"}
+                              </button>
+                            )}
+
+                            <Link
+                              href={`/account/orders/${
+                                order.orderNumber ||
+                                order._id
+                              }`}
+                              className="w-full rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-center text-sm font-semibold text-gray-900 transition hover:bg-gray-50 sm:w-auto"
+                            >
+                              View Details
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     </article>
