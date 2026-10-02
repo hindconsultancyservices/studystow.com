@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -36,6 +36,24 @@ type Book = {
   image?: string;
 };
 
+type WishlistApiItem = {
+  id?: string;
+  _id?: string;
+  title?: string;
+  slug?: string;
+  author?: string;
+  price?: number;
+  compareAtPrice?: number;
+  image?: string;
+};
+
+type WishlistApiResponse = {
+  success?: boolean;
+  items?: WishlistApiItem[];
+  message?: string;
+  error?: string;
+};
+
 type CartItem = {
   id: string;
   title: string;
@@ -48,9 +66,6 @@ type CartItem = {
   image?: string;
   quantity: number;
 };
-
-const WISHLIST_KEY = "studystow-wishlist";
-const CART_KEY = "studystow-cart";
 
 function getDiscount(
   price: number,
@@ -67,6 +82,7 @@ function getDiscount(
 
 export default function CategorySlugPage() {
   const params = useParams();
+  const router = useRouter();
 
   const slug =
     typeof params.slug === "string"
@@ -83,15 +99,25 @@ export default function CategorySlugPage() {
   const [notFound, setNotFound] =
     useState(false);
 
+  // MongoDB wishlist IDs
   const [wishlist, setWishlist] =
     useState<string[]>([]);
 
+  const [wishlistLoadingId, setWishlistLoadingId] =
+    useState<string | null>(null);
+
+  // MongoDB cart
   const [cart, setCart] =
     useState<CartItem[]>([]);
 
   const [message, setMessage] =
     useState("");
 
+  /*
+   * =====================================================
+   * LOAD CATEGORY + BOOKS
+   * =====================================================
+   */
   useEffect(() => {
     if (!slug) return;
 
@@ -100,7 +126,6 @@ export default function CategorySlugPage() {
         setLoading(true);
         setNotFound(false);
 
-        // Get real category
         const categoryResponse =
           await fetch(
             `/api/categories?active=true`,
@@ -121,7 +146,9 @@ export default function CategorySlugPage() {
         const categories =
           Array.isArray(categoryData?.data)
             ? categoryData.data
-            : Array.isArray(categoryData?.categories)
+            : Array.isArray(
+                  categoryData?.categories
+                )
               ? categoryData.categories
               : [];
 
@@ -139,7 +166,6 @@ export default function CategorySlugPage() {
 
         setCategory(foundCategory);
 
-        // Get real books for this category
         const booksResponse =
           await fetch(
             `/api/books?published=true&category=${encodeURIComponent(
@@ -181,49 +207,152 @@ export default function CategorySlugPage() {
     loadCategory();
   }, [slug]);
 
-  useEffect(() => {
+  /*
+   * =====================================================
+   * LOAD MONGODB WISHLIST
+   * =====================================================
+   */
+  async function loadWishlist() {
     try {
-      const savedWishlist =
-        localStorage.getItem(
-          WISHLIST_KEY
-        );
-
-      const savedCart =
-        localStorage.getItem(CART_KEY);
-
-      if (savedWishlist) {
-        const parsed =
-          JSON.parse(savedWishlist);
-
-        if (Array.isArray(parsed)) {
-          setWishlist(
-            parsed
-              .map((item) =>
-                typeof item === "string"
-                  ? item
-                  : item?.id
-              )
-              .filter(Boolean)
-          );
+      const response = await fetch(
+        "/api/wishlist",
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
         }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          setWishlist([]);
+        }
+
+        return;
       }
 
-      if (savedCart) {
-        const parsed =
-          JSON.parse(savedCart);
+      const data: WishlistApiResponse =
+        await response.json();
 
-        if (Array.isArray(parsed)) {
-          setCart(parsed);
-        }
+      if (
+        !data?.success ||
+        !Array.isArray(data.items)
+      ) {
+        setWishlist([]);
+        return;
       }
+
+      const ids = data.items
+        .map(
+          (item) =>
+            item.id || item._id
+        )
+        .filter(Boolean)
+        .map(String);
+
+      setWishlist(ids);
     } catch (error) {
       console.error(
-        "Failed to load cart/wishlist:",
+        "Failed to load wishlist:",
         error
       );
     }
+  }
+
+  /*
+   * =====================================================
+   * LOAD MONGODB CART
+   * =====================================================
+   */
+  async function loadCart() {
+    try {
+      const response = await fetch(
+        "/api/cart",
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data =
+        await response.json();
+
+      const items =
+        Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.data?.items)
+            ? data.data.items
+            : Array.isArray(data?.data)
+              ? data.data
+              : [];
+
+      if (Array.isArray(items)) {
+        setCart(items);
+      }
+    } catch (error) {
+      console.error(
+        "Failed to load cart:",
+        error
+      );
+    }
+  }
+
+  /*
+   * =====================================================
+   * INITIAL WISHLIST + CART
+   * =====================================================
+   */
+  useEffect(() => {
+    loadWishlist();
+    loadCart();
+
+    function refreshWishlist() {
+      loadWishlist();
+    }
+
+    function handleVisibility() {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        loadWishlist();
+        loadCart();
+      }
+    }
+
+    window.addEventListener(
+      "studystow-wishlist-updated",
+      refreshWishlist
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility
+    );
+
+    return () => {
+      window.removeEventListener(
+        "studystow-wishlist-updated",
+        refreshWishlist
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility
+      );
+    };
   }, []);
 
+  /*
+   * =====================================================
+   * MESSAGE
+   * =====================================================
+   */
   function showMessage(text: string) {
     setMessage(text);
 
@@ -232,121 +361,182 @@ export default function CategorySlugPage() {
     }, 2000);
   }
 
-  function toggleWishlist(book: Book) {
-    const bookId = book._id;
+  /*
+   * =====================================================
+   * MONGODB WISHLIST TOGGLE
+   * =====================================================
+   */
+  async function toggleWishlist(book: Book) {
+    const bookId = String(book._id);
+
+    if (!bookId || wishlistLoadingId) {
+      return;
+    }
 
     const exists =
       wishlist.includes(bookId);
 
-    const nextWishlist = exists
-      ? wishlist.filter(
-          (id) => id !== bookId
-        )
-      : [...wishlist, bookId];
+    setWishlistLoadingId(bookId);
 
-    setWishlist(nextWishlist);
+    try {
+      const response = await fetch(
+        "/api/wishlist",
+        {
+          method: exists
+            ? "DELETE"
+            : "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            bookId,
+          }),
+        }
+      );
 
-    const wishlistBooks = books
-      .filter((item) =>
-        nextWishlist.includes(item._id)
-      )
-      .map((item) => ({
-        id: item._id,
-        title: item.title,
-        slug: item.slug,
-        author: item.author,
-        price: item.price,
-        compareAtPrice:
-          item.compareAtPrice,
-        image: item.image,
-      }));
+      const data =
+        await response
+          .json()
+          .catch(() => null);
 
-    localStorage.setItem(
-      WISHLIST_KEY,
-      JSON.stringify(wishlistBooks)
-    );
-
-    showMessage(
-      exists
-        ? `${book.title} removed from wishlist`
-        : `${book.title} added to wishlist`
-    );
-  }
-
-  function addToCart(book: Book) {
-    if (book.stock <= 0) {
-      showMessage("Book is out of stock");
-      return;
-    }
-
-    const existing = cart.find(
-      (item) => item.id === book._id
-    );
-
-    let nextCart: CartItem[];
-
-    const categoryName =
-      typeof book.category === "object"
-        ? book.category?.name || ""
-        : book.category || "";
-
-    if (existing) {
-      if (
-        existing.quantity >= book.stock
-      ) {
-        showMessage(
-          `Only ${book.stock} copies available`
+      if (response.status === 401) {
+        router.push(
+          `/login?callbackUrl=${encodeURIComponent(
+            `/category/${slug}`
+          )}`
         );
+
         return;
       }
 
-      nextCart = cart.map((item) =>
-        item.id === book._id
-          ? {
-              ...item,
-              quantity:
-                item.quantity + 1,
-              price: book.price,
-              originalPrice:
-                book.compareAtPrice ||
-                book.price,
-              stock: book.stock,
-              image: book.image,
-            }
-          : item
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Unable to update wishlist."
+        );
+      }
+
+      setWishlist((current) =>
+        exists
+          ? current.filter(
+              (id) => id !== bookId
+            )
+          : [...current, bookId]
       );
-    } else {
-      nextCart = [
-        ...cart,
-        {
-          id: book._id,
-          title: book.title,
-          slug: book.slug,
-          author: book.author,
-          category: categoryName,
-          price: book.price,
-          originalPrice:
-            book.compareAtPrice ||
-            book.price,
-          stock: book.stock,
-          image: book.image,
-          quantity: 1,
-        },
-      ];
+
+      window.dispatchEvent(
+        new Event(
+          "studystow-wishlist-updated"
+        )
+      );
+
+      showMessage(
+        exists
+          ? `${book.title} removed from wishlist`
+          : `${book.title} added to wishlist`
+      );
+    } catch (error) {
+      console.error(
+        "Wishlist error:",
+        error
+      );
+
+      showMessage(
+        "Unable to update wishlist"
+      );
+    } finally {
+      setWishlistLoadingId(null);
     }
-
-    setCart(nextCart);
-
-    localStorage.setItem(
-      CART_KEY,
-      JSON.stringify(nextCart)
-    );
-
-    showMessage(
-      `${book.title} added to cart`
-    );
   }
 
+  /*
+   * =====================================================
+   * MONGODB CART
+   * =====================================================
+   */
+  async function addToCart(book: Book) {
+  if (book.stock <= 0) {
+    showMessage("Book is out of stock");
+    return;
+  }
+
+  try {
+    const existingCartItem = cart.find(
+      (item) => String(item.id) === String(book._id)
+    );
+
+    const currentQuantity =
+      existingCartItem?.quantity || 0;
+
+    if (currentQuantity >= book.stock) {
+      showMessage(
+        book.stock === 1
+          ? "Only 1 item available"
+          : `Only ${book.stock} items available`
+      );
+      return;
+    }
+
+    const response = await fetch("/api/cart", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        bookId: String(book._id),
+        quantity: 1,
+      }),
+    });
+
+    const data = await response
+      .json()
+      .catch(() => null);
+
+    if (response.status === 401) {
+      router.push(
+        `/login?callbackUrl=${encodeURIComponent(
+          `/category/${slug}`
+        )}`
+      );
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.message ||
+          data?.error ||
+          "Unable to add to cart."
+      );
+    }
+
+    await loadCart();
+
+    window.dispatchEvent(
+      new Event("studystow-cart-updated")
+    );
+
+    showMessage(`${book.title} added to cart`);
+  } catch (error) {
+    console.error("Cart error:", error);
+
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Unable to add to cart";
+
+    showMessage(errorMessage);
+  }
+}
+
+  /*
+   * =====================================================
+   * LOADING
+   * =====================================================
+   */
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-50">
@@ -361,6 +551,11 @@ export default function CategorySlugPage() {
     );
   }
 
+  /*
+   * =====================================================
+   * NOT FOUND
+   * =====================================================
+   */
   if (notFound || !category) {
     return (
       <main className="min-h-screen bg-slate-50">
@@ -396,8 +591,11 @@ export default function CategorySlugPage() {
         </div>
       )}
 
-      {/* Header */}
-      <section className="border-b bg-white">
+      {/* =====================================================
+          HEADER
+          Hidden on mobile
+         ===================================================== */}
+      <section className="hidden border-b bg-white sm:block">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Link
@@ -448,10 +646,13 @@ export default function CategorySlugPage() {
         </div>
       </section>
 
-      {/* Books */}
+      {/* =====================================================
+          BOOKS
+          Exact responsive card sizing from /books page
+         ===================================================== */}
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         {books.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
             {books.map((book) => {
               const originalPrice =
                 Number(
@@ -460,19 +661,23 @@ export default function CategorySlugPage() {
 
               const discount =
                 getDiscount(
-                  book.price,
+                  Number(book.price),
                   originalPrice
                 );
 
               const isWishlisted =
                 wishlist.includes(
-                  book._id
+                  String(book._id)
                 );
+
+              const wishlistLoading =
+                wishlistLoadingId ===
+                String(book._id);
 
               return (
                 <article
                   key={book._id}
-                  className="group overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                  className="group overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg sm:rounded-2xl"
                 >
                   {/* Image */}
                   <div className="relative">
@@ -488,63 +693,72 @@ export default function CategorySlugPage() {
                             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                           />
                         ) : (
-                          <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
+                          <BookOpen className="h-14 w-14 text-slate-300 transition duration-300 group-hover:scale-110 sm:h-20 sm:w-20" />
                         )}
 
                         {discount > 0 && (
-                          <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
+                          <span className="absolute left-2 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white sm:left-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-xs">
                             {discount}% OFF
                           </span>
                         )}
                       </div>
                     </Link>
 
+                    {/* Wishlist */}
                     <button
                       type="button"
                       onClick={() =>
                         toggleWishlist(book)
+                      }
+                      disabled={
+                        wishlistLoading
                       }
                       aria-label={
                         isWishlisted
                           ? `Remove ${book.title} from wishlist`
                           : `Add ${book.title} to wishlist`
                       }
-                      className="absolute right-3 top-3 rounded-full bg-white p-2 shadow-sm transition hover:text-red-500"
+                      title={
+                        isWishlisted
+                          ? "Remove from Wishlist"
+                          : "Add to Wishlist"
+                      }
+                      className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 p-0 text-slate-600 shadow-sm transition hover:bg-white hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-60 sm:right-3 sm:top-3 sm:h-10 sm:w-10"
                     >
                       <Heart
-                        className={`h-5 w-5 ${
+                        className={`h-4 w-4 sm:h-5 sm:w-5 ${
                           isWishlisted
                             ? "fill-red-500 text-red-500"
-                            : "text-slate-600"
+                            : ""
                         }`}
                       />
                     </button>
                   </div>
 
                   {/* Details */}
-                  <div className="p-4">
+                  <div className="p-3 sm:p-4">
                     <Link
                       href={`/books/${book.slug}`}
                     >
-                      <p className="text-xs font-medium text-blue-600">
+                      <p className="text-[10px] font-medium text-blue-600 sm:text-xs">
                         {typeof book.category ===
                         "object"
                           ? book.category?.name
                           : book.category}
                       </p>
 
-                      <h2 className="mt-1 line-clamp-2 min-h-[40px] text-sm font-semibold text-slate-900 transition group-hover:text-blue-600">
+                      <h2 className="mt-1 line-clamp-2 min-h-[32px] text-xs font-semibold text-slate-900 transition group-hover:text-blue-600 sm:min-h-[40px] sm:text-sm">
                         {book.title}
                       </h2>
                     </Link>
 
-                    <p className="mt-1 truncate text-xs text-slate-500">
+                    <p className="mt-1 truncate text-[10px] text-slate-500 sm:text-xs">
                       by {book.author}
                     </p>
 
                     {/* Price */}
-                    <div className="mt-3 flex items-center gap-2">
-                      <span className="text-lg font-bold text-slate-900">
+                    <div className="mt-2 flex items-center gap-2 sm:mt-3">
+                      <span className="text-base font-bold text-slate-900 sm:text-lg">
                         ₹
                         {Number(
                           book.price
@@ -554,8 +768,8 @@ export default function CategorySlugPage() {
                       </span>
 
                       {originalPrice >
-                        book.price && (
-                        <span className="text-xs text-slate-400 line-through">
+                        Number(book.price) && (
+                        <span className="text-[10px] text-slate-400 line-through sm:text-xs">
                           ₹
                           {originalPrice.toLocaleString(
                             "en-IN"
@@ -566,19 +780,20 @@ export default function CategorySlugPage() {
 
                     {/* Stock */}
                     <p
-                      className={`mt-1 text-xs font-medium ${
+                      className={`mt-1 text-[10px] font-medium sm:text-xs ${
                         book.stock <= 10
                           ? "text-orange-600"
                           : "text-green-600"
                       }`}
                     >
                       {book.stock <= 0
-                        ? "Out of stock"
+                        ? "Out"
                         : book.stock <= 10
                           ? `Only ${book.stock} left`
                           : "In stock"}
                     </p>
 
+                    {/* Cart */}
                     <button
                       type="button"
                       disabled={
@@ -587,13 +802,21 @@ export default function CategorySlugPage() {
                       onClick={() =>
                         addToCart(book)
                       }
-                      className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:mt-4 sm:h-10 sm:gap-2 sm:text-sm"
                     >
-                      <ShoppingCart className="h-4 w-4" />
+                      <ShoppingCart className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
 
-                      {book.stock <= 0
-                        ? "Out of Stock"
-                        : "Add to Cart"}
+                      <span className="sm:hidden">
+                        {book.stock <= 0
+                          ? "Out"
+                          : "Cart"}
+                      </span>
+
+                      <span className="hidden sm:inline">
+                        {book.stock <= 0
+                          ? "Out of Stock"
+                          : "Add to Cart"}
+                      </span>
                     </button>
                   </div>
                 </article>

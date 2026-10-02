@@ -429,12 +429,7 @@ export default function OrdersPage() {
                 Addresses
               </Link>
 
-              <Link
-                href="/account/wishlist"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                Wishlist
-              </Link>
+              
 
               <button
                 type="button"

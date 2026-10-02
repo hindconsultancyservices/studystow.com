@@ -575,12 +575,6 @@ export default function AccountPage() {
                 Addresses
               </Link>
 
-              <Link
-                href="/account/wishlist"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                Wishlist
-              </Link>
 
               <button
                 type="button"
@@ -642,22 +636,7 @@ export default function AccountPage() {
                 </p>
               </Link>
 
-              <Link
-                href="/account/wishlist"
-                className="rounded-xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-2xl">♡</span>
-
-                  <span className="text-2xl font-bold text-gray-900">
-                    {wishlistCount}
-                  </span>
-                </div>
-
-                <p className="mt-4 text-sm font-medium text-gray-600">
-                  Wishlist
-                </p>
-              </Link>
+              
 
               <Link
                 href="/account/addresses"

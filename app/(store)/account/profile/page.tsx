@@ -576,12 +576,7 @@ export default function ProfilePage() {
       Addresses
     </Link>
 
-    <Link
-      href="/wishlist"
-      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-    >
-      Wishlist
-    </Link>
+    
 
     <button
       type="button"

@@ -4,6 +4,13 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 
+type CurrentUser = {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+};
+
 type Address = {
   _id?: string;
   id?: string;
@@ -89,6 +96,9 @@ function getApiMessage(
 export default function AddressesPage() {
   const { data: session, status } = useSession();
 
+  const [currentUser, setCurrentUser] =
+    useState<CurrentUser | null>(null);
+
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [form, setForm] = useState<AddressForm>(
     createEmptyForm()
@@ -104,6 +114,12 @@ export default function AddressesPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  /*
+   * ==========================================================
+   * LOAD ADDRESSES
+   * ==========================================================
+   */
+
   async function loadAddresses() {
     try {
       setLoading(true);
@@ -116,6 +132,7 @@ export default function AddressesPage() {
           cache: "no-store",
           headers: {
             Accept: "application/json",
+            "Cache-Control": "no-cache",
           },
         }
       );
@@ -151,6 +168,12 @@ export default function AddressesPage() {
     }
   }
 
+  /*
+   * ==========================================================
+   * LOAD MONGODB USER + ADDRESSES
+   * ==========================================================
+   */
+
   useEffect(() => {
     if (status !== "authenticated") {
       if (status === "unauthenticated") {
@@ -162,50 +185,134 @@ export default function AddressesPage() {
 
     let mounted = true;
 
-    async function load() {
+    async function loadAccountData() {
       try {
         setLoading(true);
         setError("");
 
-        const response = await fetch(
+        /*
+         * ======================================================
+         * 1. GET LOGGED-IN USER FROM MONGODB
+         * ======================================================
+         *
+         * We use the authenticated session email only to locate
+         * the actual MongoDB user record.
+         *
+         * The displayed name/email comes from MongoDB.
+         */
+
+        const email = session?.user?.email?.trim();
+
+        if (!email) {
+          throw new Error(
+            "Your account email could not be found."
+          );
+        }
+
+        const userResponse = await fetch(
+          `/api/users?search=${encodeURIComponent(
+            email
+          )}&limit=1`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
+
+        const userResult =
+          await userResponse
+            .json()
+            .catch(() => ({}));
+
+        if (
+          !userResponse.ok ||
+          !userResult?.success
+        ) {
+          throw new Error(
+            userResult?.message ||
+              "Unable to load your account."
+          );
+        }
+
+        const mongoUser =
+          Array.isArray(userResult?.data)
+            ? userResult.data[0]
+            : null;
+
+        if (!mongoUser?._id) {
+          throw new Error(
+            "Your account was not found in MongoDB."
+          );
+        }
+
+        if (mounted) {
+          setCurrentUser({
+            _id: String(mongoUser._id),
+            name: mongoUser.name || "",
+            email:
+              mongoUser.email || email,
+            phone: mongoUser.phone || "",
+          });
+        }
+
+        /*
+         * ======================================================
+         * 2. LOAD USER ADDRESSES
+         * ======================================================
+         */
+
+        const addressResponse = await fetch(
           "/api/users/me/addresses",
           {
             method: "GET",
             cache: "no-store",
             headers: {
               Accept: "application/json",
+              "Cache-Control": "no-cache",
             },
           }
         );
 
-        let data: unknown = null;
+        let addressData: unknown = null;
 
         try {
-          data = await response.json();
+          addressData =
+            await addressResponse.json();
         } catch {
-          data = null;
+          addressData = null;
         }
 
-        if (!response.ok) {
+        if (!addressResponse.ok) {
           throw new Error(
             getApiMessage(
-              data,
+              addressData,
               "Unable to load addresses."
             )
           );
         }
 
         if (mounted) {
-          setAddresses(extractAddresses(data));
+          setAddresses(
+            extractAddresses(addressData)
+          );
         }
       } catch (loadError) {
+        console.error(
+          "Account addresses loading error:",
+          loadError
+        );
+
         if (mounted) {
           setAddresses([]);
 
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "Unable to load addresses."
+              : "Unable to load account data."
           );
         }
       } finally {
@@ -215,12 +322,21 @@ export default function AddressesPage() {
       }
     }
 
-    load();
+    loadAccountData();
 
     return () => {
       mounted = false;
     };
-  }, [status]);
+  }, [
+    status,
+    session?.user?.email,
+  ]);
+
+  /*
+   * ==========================================================
+   * FORM HELPERS
+   * ==========================================================
+   */
 
   function updateField(
     field: keyof AddressForm,
@@ -261,13 +377,18 @@ export default function AddressesPage() {
       label: address.label ?? "",
       fullName: address.fullName ?? "",
       phone: address.phone ?? "",
-      addressLine1: address.addressLine1 ?? "",
-      addressLine2: address.addressLine2 ?? "",
+      addressLine1:
+        address.addressLine1 ?? "",
+      addressLine2:
+        address.addressLine2 ?? "",
       city: address.city ?? "",
       state: address.state ?? "",
-      postalCode: address.postalCode ?? "",
-      country: address.country ?? "India",
-      isDefault: Boolean(address.isDefault),
+      postalCode:
+        address.postalCode ?? "",
+      country:
+        address.country ?? "India",
+      isDefault:
+        Boolean(address.isDefault),
     });
 
     setError("");
@@ -290,6 +411,12 @@ export default function AddressesPage() {
     setForm(createEmptyForm());
   }
 
+  /*
+   * ==========================================================
+   * SAVE ADDRESS
+   * ==========================================================
+   */
+
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -302,14 +429,23 @@ export default function AddressesPage() {
       label: form.label.trim(),
       fullName: form.fullName.trim(),
       phone: form.phone.trim(),
-      addressLine1: form.addressLine1.trim(),
-      addressLine2: form.addressLine2.trim(),
+      addressLine1:
+        form.addressLine1.trim(),
+      addressLine2:
+        form.addressLine2.trim(),
       city: form.city.trim(),
       state: form.state.trim(),
-      postalCode: form.postalCode.trim(),
+      postalCode:
+        form.postalCode.trim(),
       country: form.country.trim(),
       isDefault: form.isDefault,
     };
+
+    /*
+     * ========================================================
+     * VALIDATION
+     * ========================================================
+     */
 
     if (
       !payload.fullName ||
@@ -327,12 +463,16 @@ export default function AddressesPage() {
     }
 
     if (payload.fullName.length > 100) {
-      setError("Full name cannot exceed 100 characters.");
+      setError(
+        "Full name cannot exceed 100 characters."
+      );
       return;
     }
 
     if (payload.phone.length > 20) {
-      setError("Phone number cannot exceed 20 characters.");
+      setError(
+        "Phone number cannot exceed 20 characters."
+      );
       return;
     }
 
@@ -351,12 +491,16 @@ export default function AddressesPage() {
     }
 
     if (payload.city.length > 100) {
-      setError("City cannot exceed 100 characters.");
+      setError(
+        "City cannot exceed 100 characters."
+      );
       return;
     }
 
     if (payload.state.length > 100) {
-      setError("State cannot exceed 100 characters.");
+      setError(
+        "State cannot exceed 100 characters."
+      );
       return;
     }
 
@@ -368,11 +512,18 @@ export default function AddressesPage() {
     }
 
     if (payload.country.length > 100) {
-      setError("Country cannot exceed 100 characters.");
+      setError(
+        "Country cannot exceed 100 characters."
+      );
       return;
     }
 
-    if (editingId && !getAddressId({ _id: editingId })) {
+    if (
+      editingId &&
+      !getAddressId({
+        _id: editingId,
+      })
+    ) {
       setError("Invalid address ID.");
       return;
     }
@@ -386,19 +537,29 @@ export default function AddressesPage() {
           )}`
         : "/api/users/me/addresses";
 
-      const response = await fetch(endpoint, {
-        method: editingId ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        endpoint,
+        {
+          method: editingId
+            ? "PUT"
+            : "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept:
+              "application/json",
+          },
+          body: JSON.stringify(
+            payload
+          ),
+        }
+      );
 
       let data: unknown = null;
 
       try {
-        data = await response.json();
+        data =
+          await response.json();
       } catch {
         data = null;
       }
@@ -414,15 +575,21 @@ export default function AddressesPage() {
         );
       }
 
-      const updatedAddresses = extractAddresses(data);
+      const updatedAddresses =
+        extractAddresses(data);
 
-      if (updatedAddresses.length > 0) {
-        setAddresses(updatedAddresses);
+      if (
+        updatedAddresses.length > 0
+      ) {
+        setAddresses(
+          updatedAddresses
+        );
       } else {
         await loadAddresses();
       }
 
-      const wasEditing = Boolean(editingId);
+      const wasEditing =
+        Boolean(editingId);
 
       setShowForm(false);
       setEditingId("");
@@ -444,15 +611,26 @@ export default function AddressesPage() {
     }
   }
 
-  async function handleDelete(addressId: string) {
+  /*
+   * ==========================================================
+   * DELETE ADDRESS
+   * ==========================================================
+   */
+
+  async function handleDelete(
+    addressId: string
+  ) {
     if (!addressId) {
-      setError("Invalid address ID.");
+      setError(
+        "Invalid address ID."
+      );
       return;
     }
 
-    const confirmed = window.confirm(
-      "Are you sure you want to remove this address?"
-    );
+    const confirmed =
+      window.confirm(
+        "Are you sure you want to remove this address?"
+      );
 
     if (!confirmed) {
       return;
@@ -463,22 +641,25 @@ export default function AddressesPage() {
     setDeletingId(addressId);
 
     try {
-      const response = await fetch(
-        `/api/users/me/addresses/${encodeURIComponent(
-          addressId
-        )}`,
-        {
-          method: "DELETE",
-          headers: {
-            Accept: "application/json",
-          },
-        }
-      );
+      const response =
+        await fetch(
+          `/api/users/me/addresses/${encodeURIComponent(
+            addressId
+          )}`,
+          {
+            method: "DELETE",
+            headers: {
+              Accept:
+                "application/json",
+            },
+          }
+        );
 
       let data: unknown = null;
 
       try {
-        data = await response.json();
+        data =
+          await response.json();
       } catch {
         data = null;
       }
@@ -492,26 +673,40 @@ export default function AddressesPage() {
         );
       }
 
-      const updatedAddresses = extractAddresses(data);
+      const updatedAddresses =
+        extractAddresses(data);
 
-      if (updatedAddresses.length > 0) {
-        setAddresses(updatedAddresses);
+      if (
+        updatedAddresses.length > 0
+      ) {
+        setAddresses(
+          updatedAddresses
+        );
       } else {
-        setAddresses((current) =>
-          current.filter(
-            (address) =>
-              getAddressId(address) !== addressId
-          )
+        setAddresses(
+          (current) =>
+            current.filter(
+              (address) =>
+                getAddressId(
+                  address
+                ) !== addressId
+            )
         );
       }
 
-      if (editingId === addressId) {
+      if (
+        editingId === addressId
+      ) {
         setShowForm(false);
         setEditingId("");
-        setForm(createEmptyForm());
+        setForm(
+          createEmptyForm()
+        );
       }
 
-      setMessage("Address removed successfully.");
+      setMessage(
+        "Address removed successfully."
+      );
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
@@ -523,13 +718,24 @@ export default function AddressesPage() {
     }
   }
 
-  if (status === "loading" || loading) {
+  /*
+   * ==========================================================
+   * LOADING
+   * ==========================================================
+   */
+
+  if (
+    status === "loading" ||
+    loading
+  ) {
     return (
       <main className="min-h-screen bg-gray-50">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="animate-pulse">
             <div className="h-5 w-32 rounded bg-gray-200" />
+
             <div className="mt-5 h-8 w-48 rounded bg-gray-200" />
+
             <div className="mt-3 h-4 w-72 rounded bg-gray-200" />
 
             <div className="mt-8 grid gap-6 lg:grid-cols-4">
@@ -537,6 +743,7 @@ export default function AddressesPage() {
 
               <div className="lg:col-span-3">
                 <div className="h-40 rounded-xl bg-gray-200" />
+
                 <div className="mt-6 h-64 rounded-xl bg-gray-200" />
               </div>
             </div>
@@ -545,6 +752,12 @@ export default function AddressesPage() {
       </main>
     );
   }
+
+  /*
+   * ==========================================================
+   * NOT AUTHENTICATED
+   * ==========================================================
+   */
 
   if (status !== "authenticated") {
     return (
@@ -569,19 +782,40 @@ export default function AddressesPage() {
     );
   }
 
+  /*
+   * ==========================================================
+   * DISPLAY USER
+   * ==========================================================
+   *
+   * IMPORTANT:
+   * Name/email comes from MongoDB.
+   */
+
   const displayName =
-    session.user?.name || "Customer";
+    currentUser?.name ||
+    "Customer";
 
   const displayEmail =
-    session.user?.email || "";
+    currentUser?.email ||
+    "";
 
   const initial =
-    displayName.charAt(0).toUpperCase() || "C";
+    displayName
+      .charAt(0)
+      .toUpperCase() || "C";
+
+  /*
+   * ==========================================================
+   * PAGE
+   * ==========================================================
+   */
 
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+
         {/* Header */}
+
         <div className="mb-8">
           <Link
             href="/account"
@@ -600,6 +834,7 @@ export default function AddressesPage() {
         </div>
 
         {/* Messages */}
+
         {error && (
           <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -613,9 +848,14 @@ export default function AddressesPage() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-4">
-          {/* Sidebar */}
+
+          {/* ====================================================
+              SIDEBAR
+              ==================================================== */}
+
           <aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3 border-b px-2 pb-5">
+
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
                 {initial}
               </div>
@@ -629,9 +869,11 @@ export default function AddressesPage() {
                   {displayEmail}
                 </p>
               </div>
+
             </div>
 
             <nav className="mt-4 space-y-1">
+
               <Link
                 href="/account"
                 className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
@@ -660,32 +902,33 @@ export default function AddressesPage() {
                 Addresses
               </Link>
 
-              <Link
-                href="/wishlist"
-                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-              >
-                Wishlist
-              </Link>
-
               <button
                 type="button"
                 onClick={() =>
                   signOut({
-                    callbackUrl: "/login",
+                    callbackUrl:
+                      "/login",
                   })
                 }
                 className="w-full rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
               >
                 Logout
               </button>
+
             </nav>
           </aside>
 
-          {/* Main */}
+          {/* ====================================================
+              MAIN
+              ==================================================== */}
+
           <section className="lg:col-span-3">
+
             {/* Summary */}
+
             <div className="rounded-xl border bg-white p-6 shadow-sm sm:p-8">
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">
                     Saved Addresses
@@ -695,7 +938,8 @@ export default function AddressesPage() {
                     {addresses.length === 0
                       ? "No saved addresses"
                       : `${addresses.length} ${
-                          addresses.length === 1
+                          addresses.length ===
+                          1
                             ? "address"
                             : "addresses"
                         } saved`}
@@ -709,13 +953,19 @@ export default function AddressesPage() {
                 >
                   + Add Address
                 </button>
+
               </div>
             </div>
 
-            {/* Form */}
+            {/* ==================================================
+                FORM
+                ================================================== */}
+
             {showForm && (
               <div className="mt-6 rounded-xl border bg-white p-6 shadow-sm sm:p-8">
+
                 <div className="mb-6 flex items-start justify-between gap-4 border-b pb-6">
+
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">
                       {editingId
@@ -736,13 +986,18 @@ export default function AddressesPage() {
                   >
                     Cancel
                   </button>
+
                 </div>
 
                 <form
                   onSubmit={handleSubmit}
                   className="space-y-6"
                 >
+
                   <div className="grid gap-5 sm:grid-cols-2">
+
+                    {/* Label */}
+
                     <div>
                       <label
                         htmlFor="label"
@@ -767,6 +1022,8 @@ export default function AddressesPage() {
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
                     </div>
+
+                    {/* Full Name */}
 
                     <div>
                       <label
@@ -794,6 +1051,8 @@ export default function AddressesPage() {
                       />
                     </div>
 
+                    {/* Phone */}
+
                     <div>
                       <label
                         htmlFor="phone"
@@ -819,6 +1078,8 @@ export default function AddressesPage() {
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
                     </div>
+
+                    {/* Country */}
 
                     <div>
                       <label
@@ -846,6 +1107,8 @@ export default function AddressesPage() {
                       />
                     </div>
 
+                    {/* Address Line 1 */}
+
                     <div className="sm:col-span-2">
                       <label
                         htmlFor="addressLine1"
@@ -872,6 +1135,8 @@ export default function AddressesPage() {
                       />
                     </div>
 
+                    {/* Address Line 2 */}
+
                     <div className="sm:col-span-2">
                       <label
                         htmlFor="addressLine2"
@@ -896,6 +1161,8 @@ export default function AddressesPage() {
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
                     </div>
+
+                    {/* City */}
 
                     <div>
                       <label
@@ -923,6 +1190,8 @@ export default function AddressesPage() {
                       />
                     </div>
 
+                    {/* State */}
+
                     <div>
                       <label
                         htmlFor="state"
@@ -949,6 +1218,8 @@ export default function AddressesPage() {
                       />
                     </div>
 
+                    {/* Postal Code */}
+
                     <div>
                       <label
                         htmlFor="postalCode"
@@ -974,10 +1245,14 @@ export default function AddressesPage() {
                         className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black"
                       />
                     </div>
+
                   </div>
+
+                  {/* Default */}
 
                   <div className="border-t pt-5">
                     <label className="flex cursor-pointer items-center gap-3">
+
                       <input
                         type="checkbox"
                         checked={form.isDefault}
@@ -994,10 +1269,14 @@ export default function AddressesPage() {
                       <span className="text-sm font-medium text-gray-700">
                         Use as my default address
                       </span>
+
                     </label>
                   </div>
 
+                  {/* Buttons */}
+
                   <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:justify-end">
+
                     <button
                       type="button"
                       onClick={closeForm}
@@ -1018,15 +1297,22 @@ export default function AddressesPage() {
                         ? "Update Address"
                         : "Save Address"}
                     </button>
+
                   </div>
+
                 </form>
               </div>
             )}
 
-            {/* Address List */}
+            {/* ==================================================
+                ADDRESS LIST
+                ================================================== */}
+
             <div className="mt-6">
+
               {addresses.length === 0 ? (
                 <div className="rounded-xl border bg-white p-10 text-center shadow-sm">
+
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-2xl text-gray-500">
                     📍
                   </div>
@@ -1036,8 +1322,7 @@ export default function AddressesPage() {
                   </h2>
 
                   <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
-                    Add a delivery address to make checkout
-                    faster.
+                    Add a delivery address to make checkout faster.
                   </p>
 
                   <button
@@ -1047,125 +1332,151 @@ export default function AddressesPage() {
                   >
                     Add Address
                   </button>
+
                 </div>
               ) : (
                 <div className="grid gap-5 md:grid-cols-2">
-                  {addresses.map((address, index) => {
-                    const addressId =
-                      getAddressId(address);
 
-                    /*
-                     * Normally every MongoDB address should have
-                     * an _id. If an old record is missing it,
-                     * use a stable fallback for rendering only.
-                     */
-                    const renderKey =
-                      addressId ||
-                      `address-${index}`;
+                  {addresses.map(
+                    (address, index) => {
+                      const addressId =
+                        getAddressId(
+                          address
+                        );
 
-                    return (
-                      <article
-                        key={renderKey}
-                        className="rounded-xl border bg-white p-6 shadow-sm"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h2 className="text-lg font-semibold text-gray-900">
-                                {address.label ||
-                                  "Address"}
-                              </h2>
+                      const renderKey =
+                        addressId ||
+                        `address-${index}`;
 
-                              {address.isDefault && (
-                                <span className="rounded-full bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white">
-                                  Default
-                                </span>
+                      return (
+                        <article
+                          key={renderKey}
+                          className="rounded-xl border bg-white p-6 shadow-sm"
+                        >
+
+                          <div className="flex items-start justify-between gap-4">
+
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+
+                                <h2 className="text-lg font-semibold text-gray-900">
+                                  {address.label ||
+                                    "Address"}
+                                </h2>
+
+                                {address.isDefault && (
+                                  <span className="rounded-full bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white">
+                                    Default
+                                  </span>
+                                )}
+
+                              </div>
+
+                              {address.fullName && (
+                                <p className="mt-4 font-medium text-gray-900">
+                                  {address.fullName}
+                                </p>
                               )}
                             </div>
 
-                            {address.fullName && (
-                              <p className="mt-4 font-medium text-gray-900">
-                                {address.fullName}
+                          </div>
+
+                          <div className="mt-4 space-y-1 text-sm leading-6 text-gray-600">
+
+                            {address.addressLine1 && (
+                              <p>
+                                {address.addressLine1}
                               </p>
                             )}
+
+                            {address.addressLine2 && (
+                              <p>
+                                {address.addressLine2}
+                              </p>
+                            )}
+
+                            {(
+                              address.city ||
+                              address.state ||
+                              address.postalCode
+                            ) && (
+                              <p>
+                                {[
+                                  address.city,
+                                  address.state,
+                                ]
+                                  .filter(
+                                    Boolean
+                                  )
+                                  .join(", ")}
+
+                                {address.postalCode
+                                  ? ` - ${address.postalCode}`
+                                  : ""}
+                              </p>
+                            )}
+
+                            {address.country && (
+                              <p>
+                                {address.country}
+                              </p>
+                            )}
+
+                            {address.phone && (
+                              <p className="pt-2 font-medium text-gray-900">
+                                {address.phone}
+                              </p>
+                            )}
+
                           </div>
-                        </div>
 
-                        <div className="mt-4 space-y-1 text-sm leading-6 text-gray-600">
-                          {address.addressLine1 && (
-                            <p>
-                              {address.addressLine1}
-                            </p>
-                          )}
+                          <div className="mt-6 flex gap-2 border-t pt-5">
 
-                          {address.addressLine2 && (
-                            <p>
-                              {address.addressLine2}
-                            </p>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openEditForm(
+                                  address
+                                )
+                              }
+                              disabled={!addressId}
+                              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Edit
+                            </button>
 
-                          {(address.city ||
-                            address.state ||
-                            address.postalCode) && (
-                            <p>
-                              {[
-                                address.city,
-                                address.state,
-                              ]
-                                .filter(Boolean)
-                                .join(", ")}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDelete(
+                                  addressId
+                                )
+                              }
+                              disabled={
+                                !addressId ||
+                                deletingId ===
+                                  addressId
+                              }
+                              className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingId ===
+                              addressId
+                                ? "Removing..."
+                                : "Remove"}
+                            </button>
 
-                              {address.postalCode
-                                ? ` - ${address.postalCode}`
-                                : ""}
-                            </p>
-                          )}
+                          </div>
 
-                          {address.country && (
-                            <p>{address.country}</p>
-                          )}
+                        </article>
+                      );
+                    }
+                  )}
 
-                          {address.phone && (
-                            <p className="pt-2 font-medium text-gray-900">
-                              {address.phone}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="mt-6 flex gap-2 border-t pt-5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openEditForm(address)
-                            }
-                            disabled={!addressId}
-                            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDelete(addressId)
-                            }
-                            disabled={
-                              !addressId ||
-                              deletingId === addressId
-                            }
-                            className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {deletingId === addressId
-                              ? "Removing..."
-                              : "Remove"}
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
                 </div>
               )}
+
             </div>
+
           </section>
         </div>
       </div>

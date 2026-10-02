@@ -427,7 +427,7 @@ setItemCount(
   ) {
     return (
       <main className="min-h-screen bg-slate-50">
-        <section className="border-b bg-white">
+        <section className="hidden border-b bg-white sm:block">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div className="animate-pulse">
               <div className="h-5 w-32 rounded bg-slate-200" />
@@ -450,7 +450,7 @@ setItemCount(
   if (status === "unauthenticated") {
     return (
       <main className="min-h-screen bg-slate-50">
-        <section className="border-b bg-white">
+        <section className="hidden border-b bg-white sm:block">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Link
@@ -509,7 +509,7 @@ setItemCount(
   ) {
     return (
       <main className="min-h-screen bg-slate-50">
-        <section className="border-b bg-white">
+        <section className="hidden border-b bg-white sm:block">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Link
@@ -565,7 +565,7 @@ setItemCount(
   if (items.length === 0) {
     return (
       <main className="min-h-screen bg-slate-50">
-        <section className="border-b bg-white">
+        <section className="hidden border-b bg-white sm:block">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Link
@@ -658,7 +658,7 @@ setItemCount(
       {/* ======================================================
           HEADER
           ====================================================== */}
-      <section className="border-b bg-white">
+      <section className="hidden border-b bg-white sm:block">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
             <Link

@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -114,10 +115,6 @@ type Book = {
   pages?: number;
 };
 
-type CartItem = Book & {
-  quantity: number;
-};
-
 type BooksApiResponse = {
   success?: boolean;
   data?: ApiBook[];
@@ -138,10 +135,26 @@ type CategoriesApiResponse = {
   message?: string;
 };
 
-const WISHLIST_KEY = "studystow-wishlist";
-const CART_KEY = "studystow-cart";
+type WishlistApiItem = {
+  _id?: string;
+  id?: string;
+  title?: string;
+  slug?: string;
+  author?: string;
+  price?: number;
+  wishlistId?: string;
+};
 
-function getDiscount(price: number, originalPrice?: number) {
+type WishlistApiResponse = {
+  success?: boolean;
+  items?: WishlistApiItem[];
+  message?: string;
+};
+
+function getDiscount(
+  price: number,
+  originalPrice?: number
+) {
   if (
     !originalPrice ||
     originalPrice <= price ||
@@ -185,7 +198,9 @@ function getCategoryName(
     | null
     | undefined
 ) {
-  if (!category) return "Uncategorized";
+  if (!category) {
+    return "Uncategorized";
+  }
 
   if (typeof category === "string") {
     return category;
@@ -208,11 +223,16 @@ function convertApiBook(book: ApiBook): Book {
       typeof book.compareAtPrice === "number"
         ? book.compareAtPrice
         : undefined,
-    stock: Math.max(0, Number(book.stock) || 0),
+    stock: Math.max(
+      0,
+      Number(book.stock) || 0
+    ),
     image: normalizeImageUrl(book.image),
     images: Array.isArray(book.images)
       ? book.images
-          .map((image) => normalizeImageUrl(image))
+          .map((image) =>
+            normalizeImageUrl(image)
+          )
           .filter(Boolean)
       : [],
     publisher: book.publisher,
@@ -222,77 +242,182 @@ function convertApiBook(book: ApiBook): Book {
 }
 
 export default function BooksPage() {
+  const router = useRouter();
+
   const [books, setBooks] = useState<Book[]>([]);
 
-  const [categories, setCategories] = useState<string[]>([
-    "All Books",
-  ]);
+  const [categories, setCategories] =
+    useState<string[]>(["All Books"]);
 
   const [selectedCategory, setSelectedCategory] =
     useState("All Books");
 
-  const [wishlist, setWishlist] = useState<string[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [message, setMessage] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  /*
+   * IMPORTANT:
+   * Wishlist IDs here are MongoDB Book IDs.
+   * No localStorage is used.
+   */
+  const [wishlist, setWishlist] =
+    useState<string[]>([]);
 
-  // ------------------------------------------------------------
-  // Load localStorage + URL search
-  // ------------------------------------------------------------
+  const [wishlistLoadingId, setWishlistLoadingId] =
+    useState("");
 
+  const [message, setMessage] =
+    useState("");
+
+  const [searchQuery, setSearchQuery] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  /*
+   * ============================================================
+   * URL SEARCH
+   * ============================================================
+   */
   useEffect(() => {
-    try {
-      const savedWishlist =
-        localStorage.getItem(WISHLIST_KEY);
+    const params = new URLSearchParams(
+      window.location.search
+    );
 
-      const savedCart =
-        localStorage.getItem(CART_KEY);
-
-      if (savedWishlist) {
-        const parsed = JSON.parse(savedWishlist);
-
-        if (Array.isArray(parsed)) {
-          const ids = parsed
-            .map((item) =>
-              typeof item === "string"
-                ? item
-                : item?.id || item?.sku
-            )
-            .filter(Boolean);
-
-          setWishlist(ids);
-        }
-      }
-
-      if (savedCart) {
-        const parsed = JSON.parse(savedCart);
-
-        if (Array.isArray(parsed)) {
-          setCart(parsed);
-        }
-      }
-
-      const params = new URLSearchParams(
-        window.location.search
-      );
-
-      setSearchQuery(
-        params.get("q")?.trim() || ""
-      );
-    } catch (storageError) {
-      console.error(
-        "Failed to load local storage:",
-        storageError
-      );
-    }
+    setSearchQuery(
+      params.get("q")?.trim() || ""
+    );
   }, []);
 
-  // ------------------------------------------------------------
-  // Fetch real books from MongoDB through API
-  // ------------------------------------------------------------
+  /*
+   * ============================================================
+   * LOAD WISHLIST FROM MONGODB
+   *
+   * GET /api/wishlist
+   * ============================================================
+   */
+  async function loadWishlist() {
+    try {
+      const response = await fetch(
+        "/api/wishlist",
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+            "Cache-Control": "no-cache",
+          },
+        }
+      );
 
+      /*
+       * Guest user has no wishlist.
+       * This is not an error.
+       */
+      if (response.status === 401) {
+        setWishlist([]);
+        return;
+      }
+
+      const result: WishlistApiResponse =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (!response.ok) {
+        console.error(
+          "Wishlist GET failed:",
+          result?.message ||
+            "Failed to load wishlist."
+        );
+        return;
+      }
+
+      if (
+        result?.success === false ||
+        !Array.isArray(result?.items)
+      ) {
+        setWishlist([]);
+        return;
+      }
+
+      const ids = result.items
+        .map((item) =>
+          String(
+            item.id ||
+              item._id ||
+              ""
+          )
+        )
+        .filter(Boolean);
+
+      setWishlist(ids);
+    } catch (wishlistError) {
+      console.error(
+        "Failed to load wishlist:",
+        wishlistError
+      );
+    }
+  }
+
+  /*
+   * ============================================================
+   * INITIAL WISHLIST LOAD
+   * ============================================================
+   */
+  useEffect(() => {
+    loadWishlist();
+
+    /*
+     * /wishlist page or WishlistButton can update wishlist.
+     * Refresh this page's heart state when that happens.
+     */
+    function handleWishlistUpdate() {
+      loadWishlist();
+    }
+
+    /*
+     * Refresh when user returns to this browser tab.
+     */
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        loadWishlist();
+      }
+    }
+
+    window.addEventListener(
+      "studystow-wishlist-updated",
+      handleWishlistUpdate
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        "studystow-wishlist-updated",
+        handleWishlistUpdate
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, []);
+
+  /*
+   * ============================================================
+   * FETCH REAL BOOKS FROM MONGODB THROUGH API
+   * ============================================================
+   */
   useEffect(() => {
     let cancelled = false;
 
@@ -312,7 +437,10 @@ export default function BooksPage() {
         const result: BooksApiResponse =
           await response.json();
 
-        if (!response.ok || result.success === false) {
+        if (
+          !response.ok ||
+          result.success === false
+        ) {
           throw new Error(
             result.message ||
               "Failed to fetch books"
@@ -320,7 +448,9 @@ export default function BooksPage() {
         }
 
         const apiBooks =
-          result.data || result.books || [];
+          result.data ||
+          result.books ||
+          [];
 
         const normalizedBooks =
           apiBooks
@@ -361,10 +491,11 @@ export default function BooksPage() {
     };
   }, []);
 
-  // ------------------------------------------------------------
-  // Fetch real categories from MongoDB
-  // ------------------------------------------------------------
-
+  /*
+   * ============================================================
+   * FETCH REAL CATEGORIES FROM MONGODB
+   * ============================================================
+   */
   useEffect(() => {
     let cancelled = false;
 
@@ -391,16 +522,24 @@ export default function BooksPage() {
           [];
 
         const names = apiCategories
-          .map((category) => category?.name)
+          .map(
+            (category) =>
+              category?.name
+          )
           .filter(
             (name): name is string =>
               Boolean(name)
           );
 
-        if (!cancelled && names.length > 0) {
+        if (
+          !cancelled &&
+          names.length > 0
+        ) {
           setCategories([
             "All Books",
-            ...Array.from(new Set(names)),
+            ...Array.from(
+              new Set(names)
+            ),
           ]);
         }
       } catch (categoryError) {
@@ -418,18 +557,23 @@ export default function BooksPage() {
     };
   }, []);
 
-  // ------------------------------------------------------------
-  // Filter books
-  // ------------------------------------------------------------
-
+  /*
+   * ============================================================
+   * FILTER BOOKS
+   * ============================================================
+   */
   const filteredBooks = useMemo(() => {
     const query =
-      searchQuery.trim().toLowerCase();
+      searchQuery
+        .trim()
+        .toLowerCase();
 
     return books.filter((book) => {
       const matchesCategory =
-        selectedCategory === "All Books" ||
-        book.category === selectedCategory;
+        selectedCategory ===
+          "All Books" ||
+        book.category ===
+          selectedCategory;
 
       const matchesSearch =
         !query ||
@@ -457,11 +601,14 @@ export default function BooksPage() {
     searchQuery,
   ]);
 
-  // ------------------------------------------------------------
-  // Toast helper
-  // ------------------------------------------------------------
-
-  function showMessage(text: string) {
+  /*
+   * ============================================================
+   * TOAST
+   * ============================================================
+   */
+  function showMessage(
+    text: string
+  ) {
     setMessage(text);
 
     window.setTimeout(() => {
@@ -469,54 +616,153 @@ export default function BooksPage() {
     }, 2000);
   }
 
-  // ------------------------------------------------------------
-  // Wishlist
-  // ------------------------------------------------------------
-
-  function saveWishlist(
-    nextWishlist: string[]
+  /*
+   * ============================================================
+   * MONGODB WISHLIST
+   *
+   * POST   /api/wishlist
+   * DELETE /api/wishlist
+   * ============================================================
+   */
+  async function toggleWishlist(
+    book: Book
   ) {
-    setWishlist(nextWishlist);
+    const bookId = book.mongoId;
 
-    const wishlistBooks = books.filter(
-      (book) =>
-        nextWishlist.includes(book.id) ||
-        nextWishlist.includes(book.sku)
-    );
+    if (!bookId) {
+      showMessage(
+        "Book ID is missing."
+      );
+      return;
+    }
 
-    localStorage.setItem(
-      WISHLIST_KEY,
-      JSON.stringify(wishlistBooks)
-    );
-  }
+    if (wishlistLoadingId) {
+      return;
+    }
 
-  function toggleWishlist(book: Book) {
     const exists =
-      wishlist.includes(book.id) ||
-      wishlist.includes(book.sku);
+      wishlist.includes(bookId);
 
-    const nextWishlist = exists
-      ? wishlist.filter(
-          (id) =>
-            id !== book.id &&
-            id !== book.sku
+    setWishlistLoadingId(bookId);
+
+    try {
+      const response =
+        await fetch(
+          "/api/wishlist",
+          {
+            method: exists
+              ? "DELETE"
+              : "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Accept:
+                "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              bookId,
+            }),
+          }
+        );
+
+      const result =
+        await response
+          .json()
+          .catch(() => null);
+
+      /*
+       * User is not logged in.
+       */
+      if (
+        response.status === 401
+      ) {
+        router.push(
+          `/login?callbackUrl=${encodeURIComponent(
+            "/books"
+          )}`
+        );
+
+        return;
+      }
+
+      /*
+       * API error.
+       */
+      if (!response.ok) {
+        throw new Error(
+          result?.message ||
+            result?.error ||
+            "Unable to update wishlist."
+        );
+      }
+
+      /*
+       * Update UI only after MongoDB
+       * request succeeds.
+       */
+      if (exists) {
+        setWishlist(
+          (current) =>
+            current.filter(
+              (id) =>
+                id !== bookId
+            )
+        );
+
+        showMessage(
+          `${book.title} removed from wishlist`
+        );
+      } else {
+        setWishlist(
+          (current) => [
+            ...current,
+            bookId,
+          ]
+        );
+
+        showMessage(
+          `${book.title} added to wishlist`
+        );
+      }
+
+      /*
+       * Notify:
+       * - /wishlist page
+       * - header
+       * - WishlistButton
+       * - other components
+       */
+      window.dispatchEvent(
+        new Event(
+          "studystow-wishlist-updated"
         )
-      : [...wishlist, book.id];
+      );
+    } catch (wishlistError) {
+      console.error(
+        "Wishlist error:",
+        wishlistError
+      );
 
-    saveWishlist(nextWishlist);
-
-    showMessage(
-      exists
-        ? `${book.title} removed from wishlist`
-        : `${book.title} added to wishlist`
-    );
+      showMessage(
+        wishlistError instanceof
+          Error
+          ? wishlistError.message
+          : "Unable to update wishlist."
+      );
+    } finally {
+      setWishlistLoadingId("");
+    }
   }
 
-  // ------------------------------------------------------------
-  // Cart
-  // ------------------------------------------------------------
-
-  function addToCart(book: Book) {
+  /*
+   * ============================================================
+   * CART
+   * ============================================================
+   */
+  async function addToCart(
+    book: Book
+  ) {
     if (book.stock <= 0) {
       showMessage(
         `${book.title} is out of stock`
@@ -524,64 +770,91 @@ export default function BooksPage() {
       return;
     }
 
-    const existingItem = cart.find(
-      (item) =>
-        item.id === book.id ||
-        item.sku === book.sku
-    );
+    try {
+      const response =
+        await fetch(
+          "/api/cart",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              bookId:
+                book.mongoId,
+              quantity: 1,
+            }),
+          }
+        );
 
-    let nextCart: CartItem[];
+      const result =
+        await response
+          .json()
+          .catch(() => null);
 
-    if (existingItem) {
+      /*
+       * Not logged in.
+       */
       if (
-        existingItem.quantity >=
-        book.stock
+        response.status === 401
       ) {
-        showMessage(
-          `Only ${book.stock} copies available`
+        router.push(
+          `/login?callbackUrl=${encodeURIComponent(
+            "/books"
+          )}`
         );
         return;
       }
 
-      nextCart = cart.map((item) =>
-        item.id === book.id ||
-        item.sku === book.sku
-          ? {
-              ...item,
-              ...book,
-              quantity:
-                item.quantity + 1,
-            }
-          : item
+      /*
+       * API error.
+       */
+      if (!response.ok) {
+        throw new Error(
+          result?.message ||
+            result?.error ||
+            "Unable to add book to cart."
+        );
+      }
+
+      /*
+       * Notify header/cart.
+       */
+      window.dispatchEvent(
+        new Event(
+          "studystow-cart-updated"
+        )
       );
-    } else {
-      nextCart = [
-        ...cart,
-        {
-          ...book,
-          quantity: 1,
-        },
-      ];
+
+      showMessage(
+        `${book.title} added to cart`
+      );
+    } catch (cartError) {
+      console.error(
+        "Add to cart error:",
+        cartError
+      );
+
+      showMessage(
+        cartError instanceof Error
+          ? cartError.message
+          : "Unable to add book to cart."
+      );
     }
-
-    setCart(nextCart);
-
-    localStorage.setItem(
-      CART_KEY,
-      JSON.stringify(nextCart)
-    );
-
-    showMessage(
-      `${book.title} added to cart`
-    );
   }
 
-  // ------------------------------------------------------------
-  // Reset filters
-  // ------------------------------------------------------------
-
+  /*
+   * ============================================================
+   * RESET FILTERS
+   * ============================================================
+   */
   function resetFilters() {
-    setSelectedCategory("All Books");
+    setSelectedCategory(
+      "All Books"
+    );
+
     setSearchQuery("");
 
     window.history.replaceState(
@@ -591,13 +864,13 @@ export default function BooksPage() {
     );
   }
 
-  // ------------------------------------------------------------
-  // Render
-  // ------------------------------------------------------------
-
+  /*
+   * ============================================================
+   * RENDER
+   * ============================================================
+   */
   return (
     <main className="min-h-screen bg-slate-50">
-      {/* Toast */}
       {message && (
         <div className="fixed right-4 top-20 z-50 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           {message}
@@ -605,13 +878,11 @@ export default function BooksPage() {
       )}
 
       {/* ======================================================
-          BOOKS HEADER
+          HEADER
           Hidden on mobile
-          Visible from sm/tablet/laptop upward
          ====================================================== */}
       <section className="hidden border-b bg-white sm:block">
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
-          {/* Breadcrumb */}
           <div className="mb-4 flex items-center gap-1.5 text-xs text-slate-500 sm:mb-6 sm:gap-2 sm:text-sm">
             <Link
               href="/"
@@ -639,8 +910,9 @@ export default function BooksPage() {
               </h1>
 
               <p className="mt-1.5 max-w-2xl text-sm leading-5 text-slate-600 sm:mt-2 sm:text-base sm:leading-normal">
-                Discover books across self-help,
-                finance, business, fiction,
+                Discover books across
+                self-help, finance,
+                business, fiction,
                 productivity and more.
               </p>
             </div>
@@ -662,10 +934,8 @@ export default function BooksPage() {
          ====================================================== */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
-
           {/* ==================================================
-              DESKTOP CATEGORY SIDEBAR
-              Hidden on mobile
+              SIDEBAR
              ================================================== */}
           <aside className="hidden lg:block">
             <div className="sticky top-6 rounded-2xl border bg-white p-5 shadow-sm">
@@ -707,7 +977,6 @@ export default function BooksPage() {
               BOOKS
              ================================================== */}
           <div>
-            {/* Search info */}
             {searchQuery && (
               <div className="mb-5 rounded-xl border bg-white px-4 py-3 text-sm text-slate-600">
                 Search results for{" "}
@@ -717,58 +986,65 @@ export default function BooksPage() {
               </div>
             )}
 
-            {/* Error */}
-            {error && !loading && (
-              <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-6 py-5">
-                <h3 className="font-semibold text-red-800">
-                  Unable to load books
-                </h3>
+            {error &&
+              !loading && (
+                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-6 py-5">
+                  <h3 className="font-semibold text-red-800">
+                    Unable to load books
+                  </h3>
 
-                <p className="mt-1 text-sm text-red-700">
-                  {error}
-                </p>
+                  <p className="mt-1 text-sm text-red-700">
+                    {error}
+                  </p>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    window.location.reload()
-                  }
-                  className="mt-4 rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
-                >
-                  Try Again
-                </button>
-              </div>
-            )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.location.reload()
+                    }
+                    className="mt-4 rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              )}
 
-            {/* Loading */}
+            {/* ==================================================
+                LOADING
+               ================================================== */}
             {loading ? (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
                 {Array.from({
                   length: 8,
-                }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="overflow-hidden rounded-2xl border bg-white shadow-sm"
-                  >
-                    <div className="aspect-[3/4] animate-pulse bg-slate-200" />
+                }).map(
+                  (_, index) => (
+                    <div
+                      key={index}
+                      className="overflow-hidden rounded-2xl border bg-white shadow-sm"
+                    >
+                      <div className="aspect-[3/4] animate-pulse bg-slate-200" />
 
-                    <div className="space-y-3 p-4">
-                      <div className="h-3 w-20 animate-pulse rounded bg-slate-200" />
+                      <div className="space-y-3 p-4">
+                        <div className="h-3 w-20 animate-pulse rounded bg-slate-200" />
 
-                      <div className="h-5 w-full animate-pulse rounded bg-slate-200" />
+                        <div className="h-5 w-full animate-pulse rounded bg-slate-200" />
 
-                      <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200" />
+                        <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200" />
 
-                      <div className="h-5 w-1/2 animate-pulse rounded bg-slate-200" />
+                        <div className="h-5 w-1/2 animate-pulse rounded bg-slate-200" />
 
-                      <div className="h-10 w-full animate-pulse rounded-lg bg-slate-200" />
+                        <div className="h-10 w-full animate-pulse rounded-lg bg-slate-200" />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
-            ) : filteredBooks.length > 0 ? (
-              /* Grid */
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            ) : filteredBooks.length >
+              0 ? (
+              /* ==================================================
+                 BOOK GRID
+                 ================================================== */
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
                 {filteredBooks.map(
                   (book) => {
                     const discount =
@@ -779,11 +1055,12 @@ export default function BooksPage() {
 
                     const isWishlisted =
                       wishlist.includes(
-                        book.id
-                      ) ||
-                      wishlist.includes(
-                        book.sku
+                        book.mongoId
                       );
+
+                    const isWishlistUpdating =
+                      wishlistLoadingId ===
+                      book.mongoId;
 
                     const imageUrl =
                       book.image ||
@@ -792,8 +1069,10 @@ export default function BooksPage() {
 
                     return (
                       <article
-                        key={book.mongoId}
-                        className="group overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                        key={
+                          book.mongoId
+                        }
+                        className="group overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg sm:rounded-2xl"
                       >
                         {/* Image */}
                         <div className="relative">
@@ -804,8 +1083,12 @@ export default function BooksPage() {
                             <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden bg-slate-100">
                               {imageUrl ? (
                                 <img
-                                  src={imageUrl}
-                                  alt={book.title}
+                                  src={
+                                    imageUrl
+                                  }
+                                  alt={
+                                    book.title
+                                  }
                                   className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                                   loading="lazy"
                                   onError={(
@@ -816,18 +1099,24 @@ export default function BooksPage() {
                                   }}
                                 />
                               ) : (
-                                <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
+                                <BookOpen className="h-12 w-12 text-slate-300 transition duration-300 group-hover:scale-110 sm:h-20 sm:w-20" />
                               )}
 
-                              {discount > 0 && (
-                                <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
-                                  {discount}% OFF
+                              {discount >
+                                0 && (
+                                <span className="absolute left-2 top-2 rounded-full bg-red-500 px-2 py-1 text-[10px] font-bold text-white sm:left-3 sm:top-3 sm:px-2.5 sm:text-xs">
+                                  {
+                                    discount
+                                  }
+                                  % OFF
                                 </span>
                               )}
                             </div>
                           </Link>
 
-                          {/* Wishlist */}
+                          {/* ==================================================
+                              MONGODB WISHLIST HEART
+                             ================================================== */}
                           <button
                             type="button"
                             aria-label={
@@ -835,15 +1124,23 @@ export default function BooksPage() {
                                 ? `Remove ${book.title} from wishlist`
                                 : `Add ${book.title} to wishlist`
                             }
+                            title={
+                              isWishlisted
+                                ? "Remove from wishlist"
+                                : "Add to wishlist"
+                            }
+                            disabled={
+                              isWishlistUpdating
+                            }
                             onClick={() =>
                               toggleWishlist(
                                 book
                               )
                             }
-                            className="absolute right-3 top-3 rounded-full bg-white/95 p-2 text-slate-600 shadow-sm transition hover:text-red-500"
+                            className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 p-0 text-slate-600 shadow-sm transition hover:bg-white hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-60 sm:right-3 sm:top-3 sm:h-10 sm:w-10"
                           >
                             <Heart
-                              className={`h-5 w-5 ${
+                              className={`h-4 w-4 sm:h-5 sm:w-5 ${
                                 isWishlisted
                                   ? "fill-red-500 text-red-500"
                                   : ""
@@ -853,26 +1150,33 @@ export default function BooksPage() {
                         </div>
 
                         {/* Details */}
-                        <div className="p-4">
+                        <div className="p-3 sm:p-4">
                           <Link
                             href={`/books/${book.slug}`}
                           >
-                            <p className="mb-1 text-xs font-medium text-blue-600">
-                              {book.category}
+                            <p className="mb-1 truncate text-[10px] font-medium text-blue-600 sm:text-xs">
+                              {
+                                book.category
+                              }
                             </p>
 
-                            <h2 className="line-clamp-2 min-h-[40px] text-sm font-semibold text-slate-900 transition group-hover:text-blue-600">
-                              {book.title}
+                            <h2 className="line-clamp-2 min-h-[40px] text-xs font-semibold text-slate-900 transition group-hover:text-blue-600 sm:min-h-[40px] sm:text-sm">
+                              {
+                                book.title
+                              }
                             </h2>
                           </Link>
 
-                          <p className="mt-1 truncate text-xs text-slate-500">
-                            by {book.author}
+                          <p className="mt-1 truncate text-[10px] text-slate-500 sm:text-xs">
+                            by{" "}
+                            {
+                              book.author
+                            }
                           </p>
 
                           {/* Price */}
-                          <div className="mt-3 flex items-center gap-2">
-                            <span className="text-lg font-bold text-slate-900">
+                          <div className="mt-2 flex flex-wrap items-center gap-1 sm:mt-3 sm:gap-2">
+                            <span className="text-base font-bold text-slate-900 sm:text-lg">
                               ₹
                               {book.price.toLocaleString(
                                 "en-IN"
@@ -882,7 +1186,7 @@ export default function BooksPage() {
                             {book.originalPrice &&
                               book.originalPrice >
                                 book.price && (
-                                <span className="text-xs text-slate-400 line-through">
+                                <span className="text-[10px] text-slate-400 line-through sm:text-xs">
                                   ₹
                                   {book.originalPrice.toLocaleString(
                                     "en-IN"
@@ -892,23 +1196,30 @@ export default function BooksPage() {
                           </div>
 
                           {/* SKU */}
-                          <p className="mt-1 text-[11px] text-slate-400">
-                            SKU: {book.sku}
+                          <p className="mt-1 hidden text-[11px] text-slate-400 sm:block">
+                            SKU:{" "}
+                            {
+                              book.sku
+                            }
                           </p>
 
                           {/* Stock */}
                           <p
-                            className={`mt-1 text-xs font-medium ${
-                              book.stock <= 0
+                            className={`mt-1 text-[10px] font-medium sm:text-xs ${
+                              book.stock <=
+                              0
                                 ? "text-red-600"
-                                : book.stock <= 10
+                                : book.stock <=
+                                  10
                                 ? "text-orange-600"
                                 : "text-green-600"
                             }`}
                           >
-                            {book.stock <= 0
+                            {book.stock <=
+                            0
                               ? "Out of stock"
-                              : book.stock <= 10
+                              : book.stock <=
+                                10
                               ? `Only ${book.stock} left`
                               : "In stock"}
                           </p>
@@ -917,18 +1228,31 @@ export default function BooksPage() {
                           <button
                             type="button"
                             disabled={
-                              book.stock <= 0
+                              book.stock <=
+                              0
                             }
                             onClick={() =>
-                              addToCart(book)
+                              addToCart(
+                                book
+                              )
                             }
-                            className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:mt-4 sm:h-10 sm:gap-2 sm:px-4 sm:text-sm"
                           >
-                            <ShoppingCart className="h-4 w-4" />
+                            <ShoppingCart className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
 
-                            {book.stock <= 0
-                              ? "Out of Stock"
-                              : "Add to Cart"}
+                            <span className="sm:hidden">
+                              {book.stock <=
+                              0
+                                ? "Out"
+                                : "Cart"}
+                            </span>
+
+                            <span className="hidden sm:inline">
+                              {book.stock <=
+                              0
+                                ? "Out of Stock"
+                                : "Add to Cart"}
+                            </span>
                           </button>
                         </div>
                       </article>
@@ -937,7 +1261,9 @@ export default function BooksPage() {
                 )}
               </div>
             ) : (
-              /* Empty */
+              /* ==================================================
+                 EMPTY
+                 ================================================== */
               <div className="rounded-2xl border bg-white px-6 py-16 text-center">
                 <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
 
@@ -952,7 +1278,9 @@ export default function BooksPage() {
 
                 <button
                   type="button"
-                  onClick={resetFilters}
+                  onClick={
+                    resetFilters
+                  }
                   className="mt-5 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   Show All Books
@@ -960,7 +1288,9 @@ export default function BooksPage() {
               </div>
             )}
 
-            {/* Bottom CTA */}
+            {/* ==================================================
+                BOTTOM CTA
+               ================================================== */}
             <div className="mt-10 rounded-2xl border bg-white p-6 text-center">
               <BookOpen className="mx-auto h-8 w-8 text-slate-400" />
 
@@ -970,8 +1300,9 @@ export default function BooksPage() {
               </h3>
 
               <p className="mt-1 text-sm text-slate-500">
-                Use the search from the header
-                to find your next book.
+                Use the search from the
+                header to find your next
+                book.
               </p>
             </div>
           </div>

@@ -3,12 +3,11 @@ import {
   BookOpen,
   ChevronRight,
   Search,
-  ShoppingCart,
-  Star,
   SlidersHorizontal,
 } from "lucide-react";
 
 import WishlistButton from "@/components/customer/WishlistButton";
+import SearchBookActions from "@/components/customer/SearchBookActions";
 import connectDB from "@/lib/db";
 import Book from "@/models/Book";
 import Category from "@/models/Category";
@@ -19,8 +18,17 @@ type SearchPageProps = {
   }>;
 };
 
-function getDiscount(price: number, originalPrice?: number) {
-  if (!originalPrice || originalPrice <= price) return 0;
+function getDiscount(
+  price: number,
+  originalPrice?: number
+) {
+  if (
+    !originalPrice ||
+    originalPrice <= price ||
+    originalPrice <= 0
+  ) {
+    return 0;
+  }
 
   return Math.round(
     ((originalPrice - price) / originalPrice) * 100
@@ -82,7 +90,8 @@ export default async function SearchPage({
       book.category &&
       typeof book.category === "object" &&
       "name" in book.category &&
-      typeof (book.category as { name?: unknown }).name === "string"
+      typeof (book.category as { name?: unknown }).name ===
+        "string"
         ? (book.category as { name: string }).name
         : "Uncategorized";
 
@@ -101,8 +110,11 @@ export default async function SearchPage({
 
   return (
     <main className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <section className="border-b bg-white">
+      {/* =====================================================
+          TOP HEADER
+          Hidden as requested
+      ====================================================== */}
+      <section className="hidden border-b bg-white">
         <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Link
@@ -153,8 +165,11 @@ export default async function SearchPage({
         </div>
       </section>
 
-      {/* Content */}
+      {/* =====================================================
+          CONTENT
+      ====================================================== */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* Result count */}
         <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <p className="text-sm text-slate-500">
             <span className="font-semibold text-slate-900">
@@ -172,7 +187,9 @@ export default async function SearchPage({
           </div>
         </div>
 
-        {/* Results */}
+        {/* ===================================================
+            RESULTS
+        ==================================================== */}
         {results.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {results.map((book) => {
@@ -186,36 +203,51 @@ export default async function SearchPage({
                   key={book.id}
                   className="group overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
                 >
-                  {/* Image */}
-                  <Link
-                    href={`/books/${book.slug}`}
-                    className="relative block"
-                  >
-                    <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden bg-slate-100">
-                      {book.image ? (
-                        <img
-                          src={book.image}
-                          alt={book.title}
-                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                        />
-                      ) : (
-                        <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
-                      )}
+                  {/* =================================================
+                      IMAGE + WISHLIST
+                  ================================================== */}
+                  <div className="relative">
+                    {/* Book image/link */}
+                    <Link
+                      href={`/books/${book.slug}`}
+                      className="relative block"
+                    >
+                      <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden bg-slate-100">
+                        {book.image ? (
+                          <img
+                            src={book.image}
+                            alt={book.title}
+                            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                          />
+                        ) : (
+                          <BookOpen className="h-20 w-20 text-slate-300 transition duration-300 group-hover:scale-110" />
+                        )}
 
-                      {discount > 0 && (
-                        <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
-                          {discount}% OFF
-                        </span>
-                      )}
+                        {/* Discount */}
+                        {discount > 0 && (
+                          <span className="absolute left-3 top-3 rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white">
+                            {discount}% OFF
+                          </span>
+                        )}
+                      </div>
+                    </Link>
 
-                      <WishlistButton
-                          bookId={book.id}
-                          bookTitle={book.title}
-                      />
-                    </div>
-                  </Link>
+                    {/* =================================================
+                        IMPORTANT:
+                        WishlistButton is OUTSIDE Link.
+                        It directly calls /api/wishlist.
+                    ================================================== */}
+                    <WishlistButton
+                      bookId={String(book.id)}
+                      bookSlug={book.slug}
+                      showText={false}
+                      className="absolute right-2 top-2 z-30 !flex !h-9 !w-9 !shrink-0 !items-center !justify-center !rounded-full !border-0 !bg-white/95 !p-0 !text-slate-600 !shadow-sm hover:!bg-white hover:!text-red-500 sm:right-3 sm:top-3 sm:!h-10 sm:!w-10"
+                    />
+                  </div>
 
-                  {/* Details */}
+                  {/* =================================================
+                      DETAILS
+                  ================================================== */}
                   <div className="p-4">
                     <Link href={`/books/${book.slug}`}>
                       <p className="mb-1 text-xs font-medium text-blue-600">
@@ -227,25 +259,36 @@ export default async function SearchPage({
                       </h2>
                     </Link>
 
+                    {/* Author */}
                     <p className="mt-1 truncate text-xs text-slate-500">
                       by {book.author}
                     </p>
 
-                    {/* Price */}
+                    {/* =================================================
+                        PRICE
+                    ================================================== */}
                     <div className="mt-3 flex items-center gap-2">
                       <span className="text-lg font-bold text-slate-900">
-                        ₹{book.price}
+                        ₹
+                        {Number(book.price).toLocaleString(
+                          "en-IN"
+                        )}
                       </span>
 
                       {book.originalPrice &&
                         book.originalPrice > book.price && (
                           <span className="text-xs text-slate-400 line-through">
-                            ₹{book.originalPrice}
+                            ₹
+                            {Number(
+                              book.originalPrice
+                            ).toLocaleString("en-IN")}
                           </span>
                         )}
                     </div>
 
-                    {/* Stock */}
+                    {/* =================================================
+                        STOCK
+                    ================================================== */}
                     <p
                       className={`mt-1 text-xs font-medium ${
                         book.stock <= 10
@@ -260,20 +303,23 @@ export default async function SearchPage({
                         : "In stock"}
                     </p>
 
-                    {/* Cart */}
-                    <button
-                      type="button"
-                      className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-semibold text-white transition hover:bg-slate-800"
-                    >
-                      <ShoppingCart className="h-4 w-4" />
-                      Add to Cart
-                    </button>
+                    {/* =================================================
+                        CART
+                    ================================================== */}
+                    <SearchBookActions
+                      bookId={String(book.id)}
+                      bookTitle={book.title}
+                      stock={book.stock}
+                    />
                   </div>
                 </article>
               );
             })}
           </div>
         ) : (
+          /* =====================================================
+             NO RESULTS
+          ====================================================== */
           <div className="rounded-2xl border bg-white px-6 py-16 text-center shadow-sm">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
               <Search className="h-8 w-8 text-slate-400" />
@@ -300,7 +346,9 @@ export default async function SearchPage({
           </div>
         )}
 
-        {/* Bottom CTA */}
+        {/* =====================================================
+            BOTTOM CTA
+        ====================================================== */}
         <div className="mt-10 rounded-2xl border bg-white p-6 text-center">
           <BookOpen className="mx-auto h-8 w-8 text-slate-400" />
 
@@ -317,6 +365,7 @@ export default async function SearchPage({
             className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             View All Books
+
             <ChevronRight className="h-4 w-4" />
           </Link>
         </div>
