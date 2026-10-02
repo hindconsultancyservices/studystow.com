@@ -196,19 +196,29 @@ const AddressSchema = new Schema<IAddress>(
 
 const OrderSchema = new Schema<IOrder>(
   {
+    // --------------------------------------------------------
+    // ORDER NUMBER
+    // --------------------------------------------------------
+
     orderNumber: {
       type: String,
       required: true,
       unique: true,
       trim: true,
-      index: true,
     },
+
+    // --------------------------------------------------------
+    // CUSTOMER
+    // --------------------------------------------------------
 
     customer: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      index: true,
     },
+
+    // --------------------------------------------------------
+    // ITEMS
+    // --------------------------------------------------------
 
     items: {
       type: [OrderItemSchema],
@@ -223,6 +233,10 @@ const OrderSchema = new Schema<IOrder>(
       },
     },
 
+    // --------------------------------------------------------
+    // ADDRESSES
+    // --------------------------------------------------------
+
     shippingAddress: {
       type: AddressSchema,
       required: true,
@@ -232,6 +246,10 @@ const OrderSchema = new Schema<IOrder>(
       type: AddressSchema,
       required: false,
     },
+
+    // --------------------------------------------------------
+    // AMOUNTS
+    // --------------------------------------------------------
 
     subtotal: {
       type: Number,
@@ -266,6 +284,10 @@ const OrderSchema = new Schema<IOrder>(
       min: 0,
     },
 
+    // --------------------------------------------------------
+    // PAYMENT
+    // --------------------------------------------------------
+
     paymentMethod: {
       type: String,
       enum: ["cod", "razorpay"],
@@ -284,6 +306,10 @@ const OrderSchema = new Schema<IOrder>(
       required: true,
     },
 
+    // --------------------------------------------------------
+    // ORDER STATUS
+    // --------------------------------------------------------
+
     orderStatus: {
       type: String,
       enum: [
@@ -298,15 +324,21 @@ const OrderSchema = new Schema<IOrder>(
       required: true,
     },
 
+    // --------------------------------------------------------
+    // RAZORPAY
+    // --------------------------------------------------------
+
     razorpayOrderId: {
       type: String,
       trim: true,
+      unique: true,
       sparse: true,
     },
 
     razorpayPaymentId: {
       type: String,
       trim: true,
+      unique: true,
       sparse: true,
     },
 
@@ -315,13 +347,16 @@ const OrderSchema = new Schema<IOrder>(
       trim: true,
     },
 
+    // --------------------------------------------------------
+    // NOTES
+    // --------------------------------------------------------
+
     notes: {
       type: String,
       trim: true,
       maxlength: 1000,
     },
   },
-
   {
     timestamps: true,
   }
@@ -349,17 +384,6 @@ OrderSchema.index({
 OrderSchema.index({
   paymentMethod: 1,
 });
-
-// Razorpay indexes
-OrderSchema.index(
-  { razorpayOrderId: 1 },
-  { sparse: true }
-);
-
-OrderSchema.index(
-  { razorpayPaymentId: 1 },
-  { sparse: true }
-);
 
 OrderSchema.index({
   createdAt: -1,
