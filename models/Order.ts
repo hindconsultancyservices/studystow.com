@@ -26,21 +26,17 @@ export type OrderStatus =
   | "delivered"
   | "cancelled";
 
-
 // ============================================================
 // ORDER ITEM
 // ============================================================
 
 export interface IOrderItem {
   book: mongoose.Types.ObjectId;
-
   title: string;
   quantity: number;
   price: number;
-
   image?: string;
 }
-
 
 // ============================================================
 // ADDRESS
@@ -49,16 +45,13 @@ export interface IOrderItem {
 export interface IAddress {
   name: string;
   phone: string;
-
   addressLine1: string;
   addressLine2?: string;
-
   city: string;
   state: string;
   pincode: string;
   country: string;
 }
-
 
 // ============================================================
 // ORDER INTERFACE
@@ -66,7 +59,6 @@ export interface IAddress {
 
 export interface IOrder extends Document {
   orderNumber: string;
-
   customer?: mongoose.Types.ObjectId;
 
   items: IOrderItem[];
@@ -93,7 +85,6 @@ export interface IOrder extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
-
 
 // ============================================================
 // ORDER ITEM SCHEMA
@@ -134,7 +125,6 @@ const OrderItemSchema = new Schema<IOrderItem>(
     _id: false,
   }
 );
-
 
 // ============================================================
 // ADDRESS SCHEMA
@@ -200,17 +190,12 @@ const AddressSchema = new Schema<IAddress>(
   }
 );
 
-
 // ============================================================
 // ORDER SCHEMA
 // ============================================================
 
 const OrderSchema = new Schema<IOrder>(
   {
-    // --------------------------------------------------------
-    // ORDER NUMBER
-    // --------------------------------------------------------
-
     orderNumber: {
       type: String,
       required: true,
@@ -219,62 +204,34 @@ const OrderSchema = new Schema<IOrder>(
       index: true,
     },
 
-
-    // --------------------------------------------------------
-    // CUSTOMER
-    // --------------------------------------------------------
-
     customer: {
       type: Schema.Types.ObjectId,
       ref: "User",
       index: true,
     },
 
-
-    // --------------------------------------------------------
-    // ITEMS
-    // --------------------------------------------------------
-
     items: {
       type: [OrderItemSchema],
       required: true,
 
       validate: {
-        validator: function (
-          items: IOrderItem[]
-        ) {
+        validator: function (items: IOrderItem[]) {
           return items.length > 0;
         },
 
-        message:
-          "Order must contain at least one item",
+        message: "Order must contain at least one item",
       },
     },
-
-
-    // --------------------------------------------------------
-    // SHIPPING ADDRESS
-    // --------------------------------------------------------
 
     shippingAddress: {
       type: AddressSchema,
       required: true,
     },
 
-
-    // --------------------------------------------------------
-    // BILLING ADDRESS
-    // --------------------------------------------------------
-
     billingAddress: {
       type: AddressSchema,
       required: false,
     },
-
-
-    // --------------------------------------------------------
-    // PRICE BREAKDOWN
-    // --------------------------------------------------------
 
     subtotal: {
       type: Number,
@@ -309,17 +266,9 @@ const OrderSchema = new Schema<IOrder>(
       min: 0,
     },
 
-
-    // --------------------------------------------------------
-    // PAYMENT
-    // --------------------------------------------------------
-
     paymentMethod: {
       type: String,
-      enum: [
-        "cod",
-        "razorpay",
-      ],
+      enum: ["cod", "razorpay"],
       required: true,
     },
 
@@ -335,11 +284,6 @@ const OrderSchema = new Schema<IOrder>(
       required: true,
     },
 
-
-    // --------------------------------------------------------
-    // ORDER STATUS
-    // --------------------------------------------------------
-
     orderStatus: {
       type: String,
       enum: [
@@ -353,11 +297,6 @@ const OrderSchema = new Schema<IOrder>(
       default: "pending",
       required: true,
     },
-
-
-    // --------------------------------------------------------
-    // RAZORPAY
-    // --------------------------------------------------------
 
     razorpayOrderId: {
       type: String,
@@ -376,11 +315,6 @@ const OrderSchema = new Schema<IOrder>(
       trim: true,
     },
 
-
-    // --------------------------------------------------------
-    // NOTES
-    // --------------------------------------------------------
-
     notes: {
       type: String,
       trim: true,
@@ -392,7 +326,6 @@ const OrderSchema = new Schema<IOrder>(
     timestamps: true,
   }
 );
-
 
 // ============================================================
 // INDEXES
@@ -417,18 +350,20 @@ OrderSchema.index({
   paymentMethod: 1,
 });
 
-OrderSchema.index({
-  razorpayOrderId: 1,
-});
+// Razorpay indexes
+OrderSchema.index(
+  { razorpayOrderId: 1 },
+  { sparse: true }
+);
 
-OrderSchema.index({
-  razorpayPaymentId: 1,
-});
+OrderSchema.index(
+  { razorpayPaymentId: 1 },
+  { sparse: true }
+);
 
 OrderSchema.index({
   createdAt: -1,
 });
-
 
 // ============================================================
 // MODEL
@@ -436,9 +371,6 @@ OrderSchema.index({
 
 const Order: Model<IOrder> =
   mongoose.models.Order ||
-  mongoose.model<IOrder>(
-    "Order",
-    OrderSchema
-  );
+  mongoose.model<IOrder>("Order", OrderSchema);
 
 export default Order;

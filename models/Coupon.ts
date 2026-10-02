@@ -4,6 +4,10 @@ import mongoose, {
   Schema,
 } from "mongoose";
 
+// ============================================================
+// TYPES
+// ============================================================
+
 export interface ICoupon extends Document {
   code: string;
   description?: string;
@@ -26,6 +30,10 @@ export interface ICoupon extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+// ============================================================
+// COUPON SCHEMA
+// ============================================================
 
 const CouponSchema = new Schema<ICoupon>(
   {
@@ -103,31 +111,62 @@ const CouponSchema = new Schema<ICoupon>(
   }
 );
 
-// Indexes
-CouponSchema.index({ code: 1 }, { unique: true });
-CouponSchema.index({ active: 1, startDate: 1, endDate: 1 });
-CouponSchema.index({ createdAt: -1 });
+// ============================================================
+// INDEXES
+// ============================================================
 
-// Validation
+// code index is already created by unique: true above.
+// Do NOT add CouponSchema.index({ code: 1 }) again.
+
+CouponSchema.index({
+  active: 1,
+  startDate: 1,
+  endDate: 1,
+});
+
+CouponSchema.index({
+  createdAt: -1,
+});
+
+// ============================================================
+// VALIDATION
+// ============================================================
+
 CouponSchema.pre("validate", function () {
-  if (this.type === "percentage" && this.value > 100) {
-    throw new Error("Percentage discount cannot be greater than 100");
+  if (
+    this.type === "percentage" &&
+    this.value > 100
+  ) {
+    throw new Error(
+      "Percentage discount cannot be greater than 100"
+    );
   }
 
   if (this.endDate <= this.startDate) {
-    throw new Error("End date must be after start date");
+    throw new Error(
+      "End date must be after start date"
+    );
   }
 
   if (
     this.usageLimit !== undefined &&
     this.usageCount > this.usageLimit
   ) {
-    throw new Error("Usage count cannot exceed usage limit");
+    throw new Error(
+      "Usage count cannot exceed usage limit"
+    );
   }
 });
 
+// ============================================================
+// MODEL
+// ============================================================
+
 const Coupon: Model<ICoupon> =
   mongoose.models.Coupon ||
-  mongoose.model<ICoupon>("Coupon", CouponSchema);
+  mongoose.model<ICoupon>(
+    "Coupon",
+    CouponSchema
+  );
 
 export default Coupon;
