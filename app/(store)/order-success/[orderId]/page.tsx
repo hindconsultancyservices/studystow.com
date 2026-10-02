@@ -13,6 +13,7 @@ import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/db";
 import Order from "@/models/Order";
 import Book from "@/models/Book";
+import "@/models/User";
 
 type OrderSuccessPageProps = {
   params: Promise<{
@@ -35,9 +36,6 @@ export default async function OrderSuccessPage({
     notFound();
   }
 
-  /*
-   * Cancel Order
-   */
   async function cancelOrder() {
     "use server";
 
@@ -49,10 +47,6 @@ export default async function OrderSuccessPage({
       throw new Error("Order not found.");
     }
 
-    /*
-     * Only pending and confirmed orders
-     * can be cancelled.
-     */
     if (
       currentOrder.orderStatus !== "pending" &&
       currentOrder.orderStatus !== "confirmed"
@@ -62,10 +56,6 @@ export default async function OrderSuccessPage({
       );
     }
 
-    /*
-     * Paid Razorpay orders should not be cancelled
-     * until the refund process is handled.
-     */
     if (
       String(currentOrder.paymentMethod).toLowerCase() ===
         "razorpay" &&
@@ -77,34 +67,27 @@ export default async function OrderSuccessPage({
       );
     }
 
-    /*
-     * Change order status.
-     */
     currentOrder.orderStatus = "cancelled";
     await currentOrder.save();
 
-    /*
-     * Restore stock.
-     */
     for (const item of currentOrder.items) {
       if (!item.book) {
         continue;
       }
 
-      await Book.findByIdAndUpdate(
-        item.book,
-        {
-          $inc: {
-            stock: Number(item.quantity || 0),
-          },
-        }
-      );
+      await Book.findByIdAndUpdate(item.book, {
+        $inc: {
+          stock: Number(item.quantity || 0),
+        },
+      });
     }
 
     revalidatePath("/account/orders");
+
     revalidatePath(
       `/account/orders/${currentOrder.orderNumber}`
     );
+
     revalidatePath(
       `/order-success/${currentOrder._id}`
     );
@@ -201,7 +184,6 @@ export default async function OrderSuccessPage({
                     key={`${String(item.book)}-${index}`}
                     className="flex gap-4 p-5"
                   >
-                    {/* Book Image */}
                     <div className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-slate-100">
                       {item.image ? (
                         <img
@@ -214,7 +196,6 @@ export default async function OrderSuccessPage({
                       )}
                     </div>
 
-                    {/* Book Info */}
                     <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-slate-900">
                         {item.title}
@@ -246,7 +227,6 @@ export default async function OrderSuccessPage({
                       </div>
                     </div>
 
-                    {/* Item Total */}
                     <div className="shrink-0 text-right">
                       <p className="font-semibold text-slate-900">
                         ₹
@@ -326,7 +306,6 @@ export default async function OrderSuccessPage({
               </div>
 
               <div className="space-y-4 p-5">
-                {/* Subtotal */}
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">
                     Subtotal
@@ -340,7 +319,6 @@ export default async function OrderSuccessPage({
                   </span>
                 </div>
 
-                {/* Shipping */}
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">
                     Shipping
@@ -355,7 +333,6 @@ export default async function OrderSuccessPage({
                   </span>
                 </div>
 
-                {/* Discount */}
                 {Number(order.discount) > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">
@@ -371,7 +348,6 @@ export default async function OrderSuccessPage({
                   </div>
                 )}
 
-                {/* Tax */}
                 {Number(order.tax) > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">
@@ -387,7 +363,6 @@ export default async function OrderSuccessPage({
                   </div>
                 )}
 
-                {/* Total */}
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-900">
@@ -433,10 +408,7 @@ export default async function OrderSuccessPage({
 
                 {/* Cancel Order */}
                 {showCancelButton && (
-                  <form
-                    action={cancelOrder}
-                    className="pt-1"
-                  >
+                  <form action={cancelOrder} className="pt-1">
                     <button
                       type="submit"
                       className="w-full rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"

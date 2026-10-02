@@ -1,3 +1,5 @@
+import User from "./User";
+import Book from "./Book";
 import mongoose, {
   Document,
   Model,
@@ -94,7 +96,7 @@ const OrderItemSchema = new Schema<IOrderItem>(
   {
     book: {
       type: Schema.Types.ObjectId,
-      ref: "Book",
+      ref: Book,
       required: true,
     },
 
@@ -213,7 +215,7 @@ const OrderSchema = new Schema<IOrder>(
 
     customer: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: User,
     },
 
     // --------------------------------------------------------
