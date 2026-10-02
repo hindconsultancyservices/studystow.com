@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import {
   Mail,
   Phone,
@@ -9,6 +12,64 @@ import {
 } from "lucide-react";
 
 export default function ContactPage() {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setLoading(true);
+    setSuccess("");
+    setError("");
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    const payload = {
+      name: String(formData.get("name") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
+      phone: String(formData.get("phone") || "").trim(),
+      subject: String(formData.get("subject") || "").trim(),
+      orderNumber: String(formData.get("orderNumber") || "").trim(),
+      message: String(formData.get("message") || "").trim(),
+    };
+
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          data?.message || "Unable to send your message."
+        );
+      }
+
+      setSuccess(
+        data?.message || "Your message has been sent successfully."
+      );
+
+      form.reset();
+    } catch (err) {
+      console.error("Contact form error:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to send your message. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-white text-slate-900">
       {/* Header */}
@@ -150,11 +211,7 @@ export default function ContactPage() {
                 </p>
               </div>
 
-              <form
-                action="/api/contact"
-                method="POST"
-                className="space-y-6"
-              >
+              <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid gap-6 sm:grid-cols-2">
                   {/* Name */}
                   <div>
@@ -276,11 +333,27 @@ export default function ContactPage() {
                 {/* Submit */}
                 <button
                   type="submit"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  disabled={loading}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Send Message
-                  <ArrowRight className="h-4 w-4" />
+                  {loading ? "Sending..." : "Send Message"}
+
+                  {!loading && <ArrowRight className="h-4 w-4" />}
                 </button>
+
+                {/* Success Message */}
+                {success && (
+                  <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+                    {success}
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {error && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                    {error}
+                  </div>
+                )}
               </form>
             </div>
           </div>

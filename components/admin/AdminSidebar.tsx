@@ -8,7 +8,7 @@ import {
   Boxes,
   FileText,
   LayoutDashboard,
-  Menu,
+  Mail,
   Package,
   Settings,
   ShoppingCart,
@@ -68,6 +68,11 @@ const navigation = [
     title: "Reviews",
     href: "/admin/reviews",
     icon: Star,
+  },
+  {
+    title: "Contact Messages",
+    href: "/admin/contact",
+    icon: Mail,
   },
 ];
 

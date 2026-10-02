@@ -7,8 +7,10 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Mail,
   MessageSquare,
   Package,
+  Phone,
   RefreshCw,
   Star,
   Users,
@@ -71,11 +73,38 @@ type Review = {
     | null;
 };
 
+type ContactStatus =
+  | "new"
+  | "contacted"
+  | "in-progress"
+  | "completed";
+
+type Contact = {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  company?: string;
+  service: string;
+  requirement: string;
+  status: ContactStatus;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 type CustomerStats = {
   totalCustomers: number;
   activeCustomers: number;
   inactiveCustomers: number;
   newCustomers: number;
+};
+
+type ContactStats = {
+  total: number;
+  new: number;
+  contacted: number;
+  inProgress: number;
+  completed: number;
 };
 
 type DashboardData = {
@@ -90,6 +119,8 @@ type DashboardData = {
     rejected: number;
     averageRating: number;
   };
+  contacts: Contact[];
+  contactStats: ContactStats;
 };
 
 type BooksResponse = {
@@ -138,6 +169,26 @@ type ReviewsResponse = {
   };
 };
 
+type ContactsResponse = {
+  success: boolean;
+  data?: Contact[];
+  items?: Contact[];
+  pagination?: {
+    total?: number;
+    page?: number;
+    limit?: number;
+    totalPages?: number;
+  };
+  stats?: {
+    total?: number;
+    new?: number;
+    contacted?: number;
+    inProgress?: number;
+    in_progress?: number;
+    completed?: number;
+  };
+};
+
 const EMPTY_REVIEW_STATS = {
   total: 0,
   pending: 0,
@@ -151,6 +202,14 @@ const EMPTY_CUSTOMER_STATS = {
   activeCustomers: 0,
   inactiveCustomers: 0,
   newCustomers: 0,
+};
+
+const EMPTY_CONTACT_STATS: ContactStats = {
+  total: 0,
+  new: 0,
+  contacted: 0,
+  inProgress: 0,
+  completed: 0,
 };
 
 function formatDate(date: string) {
@@ -185,25 +244,69 @@ function getStockStatus(stock: number) {
   if (stock <= 0) {
     return {
       text: "Out of stock",
-      className: "border-red-200 bg-red-50 text-red-700",
+      className:
+        "border-red-200 bg-red-50 text-red-700",
     };
   }
 
   if (stock <= 5) {
     return {
       text: `${stock} left`,
-      className: "border-yellow-200 bg-yellow-50 text-yellow-700",
+      className:
+        "border-yellow-200 bg-yellow-50 text-yellow-700",
     };
   }
 
   return {
     text: "In stock",
-    className: "border-green-200 bg-green-50 text-green-700",
+    className:
+      "border-green-200 bg-green-50 text-green-700",
   };
 }
 
+function getContactStatusStyle(status: ContactStatus) {
+  switch (status) {
+    case "new":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+
+    case "contacted":
+      return "border-yellow-200 bg-yellow-50 text-yellow-700";
+
+    case "in-progress":
+      return "border-violet-200 bg-violet-50 text-violet-700";
+
+    case "completed":
+      return "border-green-200 bg-green-50 text-green-700";
+
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600";
+  }
+}
+
+function getContactStatusLabel(status: ContactStatus) {
+  switch (status) {
+    case "new":
+      return "New";
+
+    case "contacted":
+      return "Contacted";
+
+    case "in-progress":
+      return "In Progress";
+
+    case "completed":
+      return "Completed";
+
+    default:
+      return status;
+  }
+}
+
 function RatingStars({ rating }: { rating: number }) {
-  const safeRating = Math.max(0, Math.min(5, Number(rating) || 0));
+  const safeRating = Math.max(
+    0,
+    Math.min(5, Number(rating) || 0)
+  );
 
   return (
     <div className="flex items-center gap-0.5">
@@ -230,7 +333,8 @@ async function fetchJson<T>(url: string): Promise<T> {
     },
   });
 
-  const contentType = response.headers.get("content-type") || "";
+  const contentType =
+    response.headers.get("content-type") || "";
 
   if (!contentType.includes("application/json")) {
     throw new Error(
@@ -242,7 +346,8 @@ async function fetchJson<T>(url: string): Promise<T> {
 
   if (!response.ok || data?.success === false) {
     throw new Error(
-      data?.message || "Failed to load dashboard data."
+      data?.message ||
+        "Failed to load dashboard data."
     );
   }
 
@@ -256,22 +361,33 @@ export default function AdminDashboardPage() {
     customerStats: EMPTY_CUSTOMER_STATS,
     reviews: [],
     reviewStats: EMPTY_REVIEW_STATS,
+    contacts: [],
+    contactStats: EMPTY_CONTACT_STATS,
   });
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [contactError, setContactError] =
+    useState("");
 
   const loadDashboard = useCallback(
     async (isRefresh = false) => {
       try {
         setError("");
+        setContactError("");
 
         if (isRefresh) {
           setRefreshing(true);
         } else {
           setLoading(true);
         }
+
+        /*
+         * Contact API is intentionally handled separately.
+         * If contact API has an issue, Books / Customers /
+         * Reviews dashboard should still load.
+         */
 
         const [
           booksResponse,
@@ -291,33 +407,43 @@ export default function AdminDashboardPage() {
           ),
         ]);
 
-        const books = Array.isArray(booksResponse.data)
+        const books = Array.isArray(
+          booksResponse.data
+        )
           ? booksResponse.data
           : [];
 
-        const customers = Array.isArray(customersResponse.data)
+        const customers = Array.isArray(
+          customersResponse.data
+        )
           ? customersResponse.data
           : [];
 
         const customerStats: CustomerStats = {
           totalCustomers: Number(
-            customersResponse.stats?.totalCustomers ?? 0
+            customersResponse.stats
+              ?.totalCustomers ?? 0
           ),
 
           activeCustomers: Number(
-            customersResponse.stats?.activeCustomers ?? 0
+            customersResponse.stats
+              ?.activeCustomers ?? 0
           ),
 
           inactiveCustomers: Number(
-            customersResponse.stats?.inactiveCustomers ?? 0
+            customersResponse.stats
+              ?.inactiveCustomers ?? 0
           ),
 
           newCustomers: Number(
-            customersResponse.stats?.newCustomers ?? 0
+            customersResponse.stats?.newCustomers ??
+              0
           ),
         };
 
-        const reviews = Array.isArray(reviewsResponse.data)
+        const reviews = Array.isArray(
+          reviewsResponse.data
+        )
           ? reviewsResponse.data
           : [];
 
@@ -341,19 +467,114 @@ export default function AdminDashboardPage() {
           ),
 
           averageRating: Number(
-            reviewsResponse.stats?.averageRating ?? 0
+            reviewsResponse.stats?.averageRating ??
+              0
           ),
         };
 
-        setData({
+        setData((current) => ({
+          ...current,
           books,
           customers,
           customerStats,
           reviews,
           reviewStats,
-        });
+        }));
+
+        /*
+         * Load contacts independently.
+         */
+        try {
+          const contactsResponse =
+            await fetchJson<ContactsResponse>(
+              "/api/contact?limit=5"
+            );
+
+          const contacts = Array.isArray(
+            contactsResponse.data
+          )
+            ? contactsResponse.data
+            : Array.isArray(
+                  contactsResponse.items
+                )
+              ? contactsResponse.items
+              : [];
+
+          const contactStats: ContactStats = {
+            total: Number(
+              contactsResponse.stats?.total ??
+                contactsResponse.pagination
+                  ?.total ??
+                contacts.length
+            ),
+
+            new: Number(
+              contactsResponse.stats?.new ??
+                contacts.filter(
+                  (item) => item.status === "new"
+                ).length
+            ),
+
+            contacted: Number(
+              contactsResponse.stats
+                ?.contacted ??
+                contacts.filter(
+                  (item) =>
+                    item.status === "contacted"
+                ).length
+            ),
+
+            inProgress: Number(
+              contactsResponse.stats
+                ?.inProgress ??
+                contactsResponse.stats
+                  ?.in_progress ??
+                contacts.filter(
+                  (item) =>
+                    item.status ===
+                    "in-progress"
+                ).length
+            ),
+
+            completed: Number(
+              contactsResponse.stats
+                ?.completed ??
+                contacts.filter(
+                  (item) =>
+                    item.status ===
+                    "completed"
+                ).length
+            ),
+          };
+
+          setData((current) => ({
+            ...current,
+            contacts,
+            contactStats,
+          }));
+        } catch (contactErr) {
+          console.error(
+            "Contact dashboard error:",
+            contactErr
+          );
+
+          setContactError(
+            contactErr instanceof Error
+              ? contactErr.message
+              : "Unable to load contact messages."
+          );
+
+          setData((current) => ({
+            ...current,
+            contacts: [],
+            contactStats: EMPTY_CONTACT_STATS,
+          }));
+        }
       } catch (error) {
-        console.error("Admin dashboard error:", error);
+        console.error(
+          "Admin dashboard error:",
+          error
+        );
 
         setError(
           error instanceof Error
@@ -385,12 +606,14 @@ export default function AdminDashboardPage() {
 
     const totalStock = data.books.reduce(
       (total, book) =>
-        total + Math.max(0, Number(book.stock) || 0),
+        total +
+        Math.max(0, Number(book.stock) || 0),
       0
     );
 
     const lowStockBooks = data.books.filter(
-      (book) => book.stock > 0 && book.stock <= 5
+      (book) =>
+        book.stock > 0 && book.stock <= 5
     ).length;
 
     const outOfStockBooks = data.books.filter(
@@ -405,11 +628,20 @@ export default function AdminDashboardPage() {
       lowStockBooks,
       outOfStockBooks,
 
-      totalCustomers: data.customerStats.totalCustomers,
-      activeCustomers: data.customerStats.activeCustomers,
+      totalCustomers:
+        data.customerStats.totalCustomers,
+
+      activeCustomers:
+        data.customerStats.activeCustomers,
 
       totalReviews: data.reviewStats.total,
       pendingReviews: data.reviewStats.pending,
+
+      totalContacts:
+        data.contactStats.total,
+
+      newContacts:
+        data.contactStats.new,
     };
   }, [data]);
 
@@ -440,6 +672,16 @@ export default function AdminDashboardPage() {
       .slice(0, 5);
   }, [data.reviews]);
 
+  const recentContacts = useMemo(() => {
+    return [...data.contacts]
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() -
+          new Date(a.createdAt).getTime()
+      )
+      .slice(0, 5);
+  }, [data.contacts]);
+
   return (
     <div className="min-h-full">
       {/* Dashboard Header */}
@@ -455,7 +697,8 @@ export default function AdminDashboardPage() {
             </h1>
 
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Monitor your bookstore, inventory, customers and reviews
+              Monitor your bookstore, inventory,
+              customers, reviews and contact enquiries
               from one place.
             </p>
           </div>
@@ -463,17 +706,23 @@ export default function AdminDashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void loadDashboard(true)}
+              onClick={() =>
+                void loadDashboard(true)
+              }
               disabled={loading || refreshing}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshCw
                 className={`h-4 w-4 ${
-                  refreshing ? "animate-spin" : ""
+                  refreshing
+                    ? "animate-spin"
+                    : ""
                 }`}
               />
 
-              {refreshing ? "Refreshing..." : "Refresh"}
+              {refreshing
+                ? "Refreshing..."
+                : "Refresh"}
             </button>
 
             <Link
@@ -487,7 +736,7 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Error */}
+      {/* Main Dashboard Error */}
       {error && (
         <section className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -503,7 +752,9 @@ export default function AdminDashboardPage() {
 
             <button
               type="button"
-              onClick={() => void loadDashboard(true)}
+              onClick={() =>
+                void loadDashboard(true)
+              }
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
             >
               <RefreshCw className="h-4 w-4" />
@@ -514,7 +765,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Main Statistics */}
-      <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {/* Books */}
         <Link
           href="/admin/books"
@@ -527,7 +778,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "—" : stats.totalBooks}
+                {loading
+                  ? "—"
+                  : stats.totalBooks}
               </p>
 
               <p className="mt-2 text-xs text-slate-500">
@@ -555,7 +808,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "—" : stats.totalCustomers}
+                {loading
+                  ? "—"
+                  : stats.totalCustomers}
               </p>
 
               <p className="mt-2 text-xs text-slate-500">
@@ -583,7 +838,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "—" : stats.totalReviews}
+                {loading
+                  ? "—"
+                  : stats.totalReviews}
               </p>
 
               <p className="mt-2 text-xs text-yellow-600">
@@ -595,6 +852,42 @@ export default function AdminDashboardPage() {
 
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-50">
               <MessageSquare className="h-5 w-5 text-yellow-600" />
+            </div>
+          </div>
+        </Link>
+
+        {/* Contact Messages */}
+        <Link
+          href="/admin/contact"
+          className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm text-slate-500">
+                Contact Messages
+              </p>
+
+              <p className="mt-2 text-3xl font-bold text-slate-900">
+                {loading
+                  ? "—"
+                  : stats.totalContacts}
+              </p>
+
+              <p
+                className={`mt-2 text-xs ${
+                  stats.newContacts > 0
+                    ? "font-semibold text-blue-600"
+                    : "text-slate-500"
+                }`}
+              >
+                {loading
+                  ? "Loading..."
+                  : `${stats.newContacts} new enquiries`}
+              </p>
+            </div>
+
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50">
+              <Mail className="h-5 w-5 text-blue-600" />
             </div>
           </div>
         </Link>
@@ -611,7 +904,9 @@ export default function AdminDashboardPage() {
                 <p className="text-3xl font-bold text-slate-900">
                   {loading
                     ? "—"
-                    : data.reviewStats.averageRating.toFixed(1)}
+                    : data.reviewStats.averageRating.toFixed(
+                        1
+                      )}
                 </p>
 
                 <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
@@ -642,7 +937,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-2xl font-bold text-slate-900">
-                {loading ? "—" : stats.totalStock}
+                {loading
+                  ? "—"
+                  : stats.totalStock}
               </p>
             </div>
 
@@ -661,7 +958,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-2xl font-bold text-yellow-600">
-                {loading ? "—" : stats.lowStockBooks}
+                {loading
+                  ? "—"
+                  : stats.lowStockBooks}
               </p>
             </div>
 
@@ -680,7 +979,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-2xl font-bold text-red-600">
-                {loading ? "—" : stats.outOfStockBooks}
+                {loading
+                  ? "—"
+                  : stats.outOfStockBooks}
               </p>
             </div>
 
@@ -699,7 +1000,9 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-2 text-2xl font-bold text-slate-900">
-                {loading ? "—" : stats.featuredBooks}
+                {loading
+                  ? "—"
+                  : stats.featuredBooks}
               </p>
             </div>
 
@@ -744,13 +1047,16 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                No books currently need stock attention.
+                No books currently need stock
+                attention.
               </p>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
               {lowStockBooks.map((book) => {
-                const stock = getStockStatus(book.stock);
+                const stock = getStockStatus(
+                  book.stock
+                );
 
                 return (
                   <div
@@ -818,7 +1124,8 @@ export default function AdminDashboardPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Customer registrations will appear here.
+                Customer registrations will appear
+                here.
               </p>
             </div>
           ) : (
@@ -844,7 +1151,9 @@ export default function AdminDashboardPage() {
 
                   <div className="shrink-0 text-right">
                     <p className="text-xs text-slate-500">
-                      {formatDate(customer.createdAt)}
+                      {formatDate(
+                        customer.createdAt
+                      )}
                     </p>
 
                     <span
@@ -854,7 +1163,9 @@ export default function AdminDashboardPage() {
                           : "text-red-600"
                       }`}
                     >
-                      {customer.active ? "Active" : "Inactive"}
+                      {customer.active
+                        ? "Active"
+                        : "Inactive"}
                     </span>
                   </div>
                 </div>
@@ -862,6 +1173,161 @@ export default function AdminDashboardPage() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* Recent Contact Messages */}
+      <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-semibold text-slate-900">
+                Recent Contact Messages
+              </h2>
+
+              {stats.newContacts > 0 && (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                  {stats.newContacts} New
+                </span>
+              )}
+            </div>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Latest enquiries submitted through the
+              website contact form.
+            </p>
+          </div>
+
+          <Link
+            href="/admin/contact"
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-slate-700 hover:underline"
+          >
+            View All Messages
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        {contactError ? (
+          <div className="p-6">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+              <p className="font-semibold text-red-800">
+                Contact messages unavailable
+              </p>
+
+              <p className="mt-1 text-sm text-red-700">
+                {contactError}
+              </p>
+
+              <Link
+                href="/admin/contact"
+                className="mt-3 inline-flex text-sm font-semibold text-red-800 underline"
+              >
+                Open Contact Messages
+              </Link>
+            </div>
+          </div>
+        ) : loading ? (
+          <div className="p-8 text-center text-sm text-slate-500">
+            Loading contact messages...
+          </div>
+        ) : recentContacts.length === 0 ? (
+          <div className="p-8 text-center">
+            <Mail className="mx-auto h-8 w-8 text-slate-300" />
+
+            <p className="mt-3 font-semibold text-slate-900">
+              No contact messages yet
+            </p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Website enquiries will appear here when
+              customers submit the contact form.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {recentContacts.map((contact) => (
+              <div
+                key={contact._id}
+                className="flex flex-col gap-4 p-5 transition hover:bg-slate-50/60 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">
+                    {getInitials(contact.name)}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-900">
+                        {contact.name}
+                      </p>
+
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getContactStatusStyle(
+                          contact.status
+                        )}`}
+                      >
+                        {getContactStatusLabel(
+                          contact.status
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="flex items-center gap-1 text-xs text-slate-500">
+                        <Mail className="h-3.5 w-3.5" />
+                        {contact.email}
+                      </span>
+
+                      {contact.phone && (
+                        <span className="flex items-center gap-1 text-xs text-slate-400">
+                          <Phone className="h-3.5 w-3.5" />
+                          {contact.phone}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                        {contact.service}
+                      </span>
+
+                      {contact.company && (
+                        <span className="text-xs text-slate-400">
+                          {contact.company}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mt-2 line-clamp-1 text-sm text-slate-500">
+                      {contact.requirement}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">
+                      {formatDate(
+                        contact.createdAt
+                      )}
+                    </p>
+
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Enquiry
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/admin/contact"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-white"
+                  >
+                    View
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Recent Reviews */}
@@ -899,7 +1365,8 @@ export default function AdminDashboardPage() {
             </p>
 
             <p className="mt-1 text-sm text-slate-500">
-              Customer reviews will appear here once submitted.
+              Customer reviews will appear here once
+              submitted.
             </p>
           </div>
         ) : (
@@ -912,14 +1379,17 @@ export default function AdminDashboardPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">
-                      {review.title || "Customer Review"}
+                      {review.title ||
+                        "Customer Review"}
                     </p>
 
                     <span
                       className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                        review.status === "approved"
+                        review.status ===
+                        "approved"
                           ? "border-green-200 bg-green-50 text-green-700"
-                          : review.status === "pending"
+                          : review.status ===
+                              "pending"
                             ? "border-yellow-200 bg-yellow-50 text-yellow-700"
                             : "border-red-200 bg-red-50 text-red-700"
                       }`}
@@ -935,7 +1405,8 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    {review.book?.title || "Book unavailable"}
+                    {review.book?.title ||
+                      "Book unavailable"}
                   </p>
 
                   <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">
@@ -943,14 +1414,19 @@ export default function AdminDashboardPage() {
                   </p>
 
                   <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <RatingStars rating={review.rating} />
+                    <RatingStars
+                      rating={review.rating}
+                    />
 
                     <span className="text-xs text-slate-400">
-                      {review.user?.name || "Customer"}
+                      {review.user?.name ||
+                        "Customer"}
                     </span>
 
                     <span className="text-xs text-slate-400">
-                      {formatDate(review.createdAt)}
+                      {formatDate(
+                        review.createdAt
+                      )}
                     </span>
                   </div>
                 </div>
@@ -976,11 +1452,12 @@ export default function AdminDashboardPage() {
           </h2>
 
           <p className="mt-1 text-sm text-slate-500">
-            Quickly access the main administration sections.
+            Quickly access the main administration
+            sections.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Link
             href="/admin/books/new"
             className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
@@ -1047,6 +1524,31 @@ export default function AdminDashboardPage() {
             </p>
 
             <ChevronRight className="mt-4 h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
+          </Link>
+
+          <Link
+            href="/admin/contact"
+            className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
+          >
+            <Mail className="h-5 w-5 text-blue-600" />
+
+            <h3 className="mt-4 font-semibold text-slate-900">
+              Contact Messages
+            </h3>
+
+            <p className="mt-1 text-sm text-slate-500">
+              View and manage website enquiries.
+            </p>
+
+            <div className="mt-3 flex items-center gap-2">
+              {stats.newContacts > 0 && (
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">
+                  {stats.newContacts} New
+                </span>
+              )}
+
+              <ChevronRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-1" />
+            </div>
           </Link>
         </div>
       </section>
