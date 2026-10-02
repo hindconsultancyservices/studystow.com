@@ -6,8 +6,10 @@ import {
   useMemo,
   useState,
 } from "react";
+
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+
 import {
   ArrowLeft,
   BookOpen,
@@ -15,7 +17,6 @@ import {
   CreditCard,
   MapPin,
   PackageCheck,
-  ShieldCheck,
   Tag,
   X,
 } from "lucide-react";
@@ -158,21 +159,6 @@ export default function CheckoutForm() {
   const [orderNumber, setOrderNumber] =
     useState("");
 
-  /*
-   * =====================================================
-   * PRICING
-   * =====================================================
-   *
-   * Cart comes from MongoDB through /api/cart.
-   *
-   * No fake shipping.
-   * No fake tax.
-   *
-   * Until a real shipping/tax engine is connected:
-   *
-   * total = subtotal - validated coupon discount
-   */
-
   const subtotal = useMemo(() => {
     return cartItems.reduce((total, item) => {
       const price = Number(item.price) || 0;
@@ -204,9 +190,7 @@ export default function CheckoutForm() {
 
   const totalItems = useMemo(() => {
     return cartItems.reduce((total, item) => {
-      return (
-        total + (Number(item.quantity) || 0)
-      );
+      return total + (Number(item.quantity) || 0);
     }, 0);
   }, [cartItems]);
 
@@ -215,12 +199,6 @@ export default function CheckoutForm() {
       (address) =>
         address._id === selectedAddressId,
     ) || addresses[0];
-
-  /*
-   * =====================================================
-   * INITIAL LOAD
-   * =====================================================
-   */
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
@@ -242,12 +220,6 @@ export default function CheckoutForm() {
     session?.user?.email,
   ]);
 
-  /*
-   * =====================================================
-   * LOAD CART
-   * =====================================================
-   */
-
   async function loadCart() {
     try {
       setError("");
@@ -257,9 +229,8 @@ export default function CheckoutForm() {
         cache: "no-store",
       });
 
-      const result = await readJsonResponse(
-        response,
-      );
+      const result =
+        await readJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(
@@ -268,16 +239,6 @@ export default function CheckoutForm() {
             "Failed to load cart.",
         );
       }
-
-      /*
-       * Supports both:
-       *
-       * { items: [...] }
-       *
-       * and:
-       *
-       * { success: true, data: { items: [...] } }
-       */
 
       const payload =
         result?.data ?? result;
@@ -303,12 +264,6 @@ export default function CheckoutForm() {
     }
   }
 
-  /*
-   * =====================================================
-   * LOAD ADDRESSES
-   * =====================================================
-   */
-
   async function loadAddresses() {
     try {
       const response = await fetch(
@@ -319,9 +274,8 @@ export default function CheckoutForm() {
         },
       );
 
-      const result = await readJsonResponse(
-        response,
-      );
+      const result =
+        await readJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(
@@ -386,12 +340,6 @@ export default function CheckoutForm() {
     }
   }
 
-  /*
-   * =====================================================
-   * ADDRESS SELECTION
-   * =====================================================
-   */
-
   function handleSelectAddress(id: string) {
     setSelectedAddressId(id);
     setShowAddresses(false);
@@ -421,12 +369,6 @@ export default function CheckoutForm() {
       [field]: value,
     }));
   }
-
-  /*
-   * =====================================================
-   * ADD ADDRESS
-   * =====================================================
-   */
 
   async function handleAddAddress() {
     setError("");
@@ -531,10 +473,6 @@ export default function CheckoutForm() {
       };
 
       setAddresses((previous) => {
-        /*
-         * If the new address is default,
-         * remove default state from old addresses.
-         */
         if (savedAddress.isDefault) {
           return [
             ...previous.map((address) => ({
@@ -594,12 +532,6 @@ export default function CheckoutForm() {
       setSavingAddress(false);
     }
   }
-
-  /*
-   * =====================================================
-   * COUPON
-   * =====================================================
-   */
 
   async function handleApplyCoupon() {
     setCouponError("");
@@ -661,16 +593,13 @@ export default function CheckoutForm() {
         code:
           result?.data?.code ||
           code.toUpperCase(),
-
         type:
           result?.data?.type ||
           "percentage",
-
         value:
           Number(
             result?.data?.value || 0,
           ),
-
         discount:
           Number.isFinite(
             discountValue,
@@ -704,12 +633,6 @@ export default function CheckoutForm() {
     setCouponCode("");
   }
 
-  /*
-   * =====================================================
-   * VALIDATION
-   * =====================================================
-   */
-
   function validateCheckout() {
     if (!session?.user?.id) {
       return "Please login before checkout.";
@@ -739,9 +662,6 @@ export default function CheckoutForm() {
       return "Please enter your email address.";
     }
 
-    /*
-     * Correct email regex.
-     */
     if (
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
         email.trim(),
@@ -752,12 +672,6 @@ export default function CheckoutForm() {
 
     return "";
   }
-
-  /*
-   * =====================================================
-   * PLACE ORDER
-   * =====================================================
-   */
 
   async function handlePlaceOrder(
     event: FormEvent<HTMLFormElement>,
@@ -876,10 +790,6 @@ export default function CheckoutForm() {
         !response.ok ||
         !result?.success
       ) {
-        /*
-         * Server may have newer price,
-         * stock or cart information.
-         */
         if (response.status === 409) {
           await loadCart();
         }
@@ -891,7 +801,8 @@ export default function CheckoutForm() {
         );
       }
 
-      const createdOrder = result?.data;
+      const createdOrder =
+        result?.data;
 
       if (!createdOrder?._id) {
         throw new Error(
@@ -899,23 +810,19 @@ export default function CheckoutForm() {
         );
       }
 
-      window.location.href =
-        `/order-success/${createdOrder._id}`;
-
       setOrderNumber(
         createdOrder?.orderNumber ||
           createdOrder?._id ||
           "",
       );
 
-      /*
-       * Only clear MongoDB cart AFTER
-       * successful order creation.
-       */
       await clearCart();
 
       setCartItems([]);
       setOrderPlaced(true);
+
+      window.location.href =
+        `/order-success/${createdOrder._id}`;
     } catch (error) {
       console.error(
         "Place order error:",
@@ -931,12 +838,6 @@ export default function CheckoutForm() {
       setIsPlacingOrder(false);
     }
   }
-
-  /*
-   * =====================================================
-   * CLEAR CART
-   * =====================================================
-   */
 
   async function clearCart() {
     try {
@@ -963,10 +864,6 @@ export default function CheckoutForm() {
       );
     }
 
-    /*
-     * Only UI synchronization event.
-     * NOT a data source.
-     */
     try {
       window.dispatchEvent(
         new Event(
@@ -977,12 +874,6 @@ export default function CheckoutForm() {
       // Browser event is optional.
     }
   }
-
-  /*
-   * =====================================================
-   * LOADING
-   * =====================================================
-   */
 
   if (
     sessionStatus === "loading" ||
@@ -998,12 +889,6 @@ export default function CheckoutForm() {
       </div>
     );
   }
-
-  /*
-   * =====================================================
-   * LOGIN REQUIRED
-   * =====================================================
-   */
 
   if (
     sessionStatus !==
@@ -1029,12 +914,6 @@ export default function CheckoutForm() {
       </div>
     );
   }
-
-  /*
-   * =====================================================
-   * SUCCESS
-   * =====================================================
-   */
 
   if (orderPlaced) {
     return (
@@ -1078,12 +957,6 @@ export default function CheckoutForm() {
     );
   }
 
-  /*
-   * =====================================================
-   * EMPTY CART
-   * =====================================================
-   */
-
   if (cartItems.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
@@ -1110,21 +983,11 @@ export default function CheckoutForm() {
     );
   }
 
-  /*
-   * =====================================================
-   * CHECKOUT
-   * =====================================================
-   */
-
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
-
       {/* LEFT SIDE */}
-
       <div className="min-w-0 space-y-6">
-
         {/* DELIVERY ADDRESS */}
-
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
             <div className="flex items-center gap-3">
@@ -1161,7 +1024,6 @@ export default function CheckoutForm() {
           </div>
 
           <div className="p-5 sm:p-6">
-
             {showAddresses && (
               <div className="mb-5 space-y-3">
                 {addresses.map(
@@ -1203,10 +1065,8 @@ export default function CheckoutForm() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="font-semibold text-slate-900">
-                                {
-                                  address.fullName ||
-                                  address.name
-                                }
+                                {address.fullName ||
+                                  address.name}
                               </p>
 
                               <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -1234,7 +1094,7 @@ export default function CheckoutForm() {
                               {
                                 address.city
                               }
-                              ,{" "}
+                              {", "}
                               {
                                 address.state
                               }{" "}
@@ -1309,7 +1169,7 @@ export default function CheckoutForm() {
                       {
                         selectedAddress.city
                       }
-                      ,{" "}
+                      {", "}
                       {
                         selectedAddress.state
                       }{" "}
@@ -1351,7 +1211,6 @@ export default function CheckoutForm() {
                 </h3>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-
                   <input
                     value={
                       newAddress.fullName
@@ -1495,7 +1354,6 @@ export default function CheckoutForm() {
         </div>
 
         {/* CHECKOUT FORM */}
-
         <form
           id="checkout-form"
           onSubmit={
@@ -1503,9 +1361,7 @@ export default function CheckoutForm() {
           }
           className="space-y-6"
         >
-
           {/* CONTACT INFORMATION */}
-
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
               <h2 className="font-semibold text-slate-900">
@@ -1520,7 +1376,6 @@ export default function CheckoutForm() {
             </div>
 
             <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
-
               <div>
                 <label
                   htmlFor="fullName"
@@ -1590,7 +1445,6 @@ export default function CheckoutForm() {
           </div>
 
           {/* COUPON */}
-
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
               <div className="flex items-center gap-3">
@@ -1647,9 +1501,7 @@ export default function CheckoutForm() {
                     value={
                       couponCode
                     }
-                    onChange={(
-                      event,
-                    ) =>
+                    onChange={(event) =>
                       setCouponCode(
                         event.target.value.toUpperCase(),
                       )
@@ -1684,7 +1536,6 @@ export default function CheckoutForm() {
           </div>
 
           {/* PAYMENT */}
-
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
               <div className="flex items-center gap-3">
@@ -1738,42 +1589,18 @@ export default function CheckoutForm() {
           </div>
 
           {/* ERROR */}
-
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
               {error}
             </div>
           )}
-
-          {/* MOBILE ORDER BUTTON */}
-
-          <div className="lg:hidden">
-            <button
-              type="submit"
-              disabled={
-                isPlacingOrder
-              }
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <ShieldCheck className="h-4 w-4" />
-
-              {isPlacingOrder
-                ? "Placing Order..."
-                : `Place Order • ${formatPrice(
-                    total,
-                  )}`}
-            </button>
-          </div>
         </form>
       </div>
 
       {/* RIGHT SIDE */}
-
       <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
         <div className="space-y-4">
-
           {/* ORDER SUMMARY */}
-
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
               <div className="flex items-center justify-between gap-3">
@@ -1791,7 +1618,6 @@ export default function CheckoutForm() {
             </div>
 
             {/* PRODUCTS */}
-
             <div className="divide-y divide-slate-100">
               {cartItems.map(
                 (item) => {
@@ -1864,7 +1690,6 @@ export default function CheckoutForm() {
             </div>
 
             {/* PRICE */}
-
             <div className="space-y-3 border-t border-slate-200 p-5">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">
@@ -1907,6 +1732,7 @@ export default function CheckoutForm() {
                 </div>
               </div>
 
+              {/* ONLY PLACE ORDER BUTTON */}
               <button
                 type="submit"
                 form="checkout-form"
@@ -1934,7 +1760,6 @@ export default function CheckoutForm() {
           </div>
 
           {/* DELIVERY */}
-
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100">
@@ -1957,7 +1782,7 @@ export default function CheckoutForm() {
                     {
                       selectedAddress.city
                     }
-                    ,{" "}
+                    {", "}
                     {
                       selectedAddress.state
                     }{" "}
@@ -1972,7 +1797,6 @@ export default function CheckoutForm() {
           </div>
 
           {/* BACK TO CART */}
-
           <Link
             href="/cart"
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-slate-900"

@@ -4,6 +4,8 @@ import mongoose, {
   Schema,
 } from "mongoose";
 
+import Category from "./Category";
+
 // ============================================================
 // BOOK INTERFACE
 // ============================================================
@@ -36,7 +38,6 @@ export interface IBook extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
-
 
 // ============================================================
 // BOOK SCHEMA
@@ -77,17 +78,15 @@ const BookSchema = new Schema<IBook>(
       maxlength: 5000,
     },
 
-
     // --------------------------------------------------------
     // CATEGORY
     // --------------------------------------------------------
 
     category: {
       type: Schema.Types.ObjectId,
-      ref: "Category",
+      ref: Category,
       required: true,
     },
-
 
     // --------------------------------------------------------
     // PRICE
@@ -103,7 +102,6 @@ const BookSchema = new Schema<IBook>(
       type: Number,
       min: 0,
     },
-
 
     // --------------------------------------------------------
     // INVENTORY
@@ -131,7 +129,6 @@ const BookSchema = new Schema<IBook>(
       maxlength: 30,
     },
 
-
     // --------------------------------------------------------
     // IMAGES
     // --------------------------------------------------------
@@ -145,7 +142,6 @@ const BookSchema = new Schema<IBook>(
       type: [String],
       default: [],
     },
-
 
     // --------------------------------------------------------
     // PUBLICATION DETAILS
@@ -169,7 +165,6 @@ const BookSchema = new Schema<IBook>(
       min: 1,
     },
 
-
     // --------------------------------------------------------
     // STATUS
     // --------------------------------------------------------
@@ -184,18 +179,15 @@ const BookSchema = new Schema<IBook>(
       default: true,
     },
   },
-
   {
     timestamps: true,
   }
 );
 
-
 // ============================================================
 // INDEXES
 // ============================================================
 
-// Search / sorting
 BookSchema.index({
   title: 1,
 });
@@ -222,7 +214,6 @@ BookSchema.index({
 BookSchema.index({
   stock: 1,
 });
-
 
 // ============================================================
 // MODEL
