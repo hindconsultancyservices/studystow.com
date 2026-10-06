@@ -1,8 +1,12 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
+import { getServerSession } from "next-auth";
+
 import connectDB from "@/lib/db";
 import Book from "@/models/Book";
 import Category from "@/models/Category";
+import { authOptions } from "@/lib/auth";
 
 type RouteContext = {
   params: Promise<{
@@ -10,16 +14,34 @@ type RouteContext = {
   }>;
 };
 
-function errorResponse(
-  message: string,
-  status = 400
-) {
+function errorResponse(message: string, status = 400) {
   return NextResponse.json(
     {
       success: false,
       message,
     },
     { status }
+  );
+}
+
+function isAdmin(user: any) {
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+  const adminRole = String(user?.adminRole || "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    role === "admin" ||
+    role === "owner" ||
+    role === "super_admin" ||
+    role === "super-admin" ||
+    adminRole === "admin" ||
+    adminRole === "owner" ||
+    adminRole === "super_admin" ||
+    adminRole === "super-admin"
   );
 }
 
@@ -527,6 +549,113 @@ export async function PUT(
 
     return errorResponse(
       "Failed to update book",
+      500
+    );
+  }
+}
+
+/* =========================================================
+   DELETE /api/books/[id]
+
+   Deletes an existing book using its SKU.
+
+   Example:
+   DELETE /api/books/BK001
+========================================================= */
+
+export async function DELETE(
+  request: NextRequest,
+  context: RouteContext
+) {
+  try {
+    /* -----------------------------------------
+       Check logged-in admin
+    ----------------------------------------- */
+
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return errorResponse(
+        "You are not authorized.",
+        401
+      );
+    }
+
+    if (!isAdmin(session.user)) {
+      return errorResponse(
+        "You do not have permission to delete books.",
+        403
+      );
+    }
+
+    /* -----------------------------------------
+       Get SKU
+    ----------------------------------------- */
+
+    const { id } = await context.params;
+
+    const sku = decodeURIComponent(id)
+      .trim()
+      .toUpperCase();
+
+    if (!sku) {
+      return errorResponse(
+        "Book SKU is required",
+        400
+      );
+    }
+
+    /* -----------------------------------------
+       Connect database
+    ----------------------------------------- */
+
+    await connectDB();
+
+    /* -----------------------------------------
+       Find book by SKU
+    ----------------------------------------- */
+
+    const book = await Book.findOne({
+      sku,
+    }).select("_id title sku");
+
+    if (!book) {
+      return errorResponse(
+        "Book not found",
+        404
+      );
+    }
+
+    /* -----------------------------------------
+       Delete book
+    ----------------------------------------- */
+
+    await Book.deleteOne({
+      _id: book._id,
+    });
+
+    /* -----------------------------------------
+       Success response
+    ----------------------------------------- */
+
+    return NextResponse.json({
+      success: true,
+      message: `"${book.title}" has been deleted successfully.`,
+      data: {
+        id: String(book._id),
+        sku: book.sku,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "DELETE /api/books/[id] error:",
+      error
+    );
+
+    return errorResponse(
+      error instanceof Error
+        ? error.message
+        : "Failed to delete book",
       500
     );
   }
