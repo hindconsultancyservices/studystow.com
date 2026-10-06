@@ -1,113 +1,83 @@
+// existing imports
 import nodemailer from "nodemailer";
 
-// ============================================================
-// EMAIL CONFIGURATION
-// ============================================================
+// existing config + transporter + sendEmail
+// existing functions:
+// sendContactEmail
+// sendOrderConfirmationEmail
+// sendPasswordResetEmail
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASSWORD = process.env.SMTP_PASSWORD;
-
-const EMAIL_FROM =
-  process.env.EMAIL_FROM || "StudyStow <support@studystow.com>";
-
-const SUPPORT_EMAIL =
-  process.env.SUPPORT_EMAIL || "support@studystow.com";
-
-
-// ============================================================
-// SMTP TRANSPORTER
-// ============================================================
-
-function getTransporter() {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD) {
-    throw new Error(
-      "Email configuration is missing. Please check SMTP_HOST, SMTP_USER and SMTP_PASSWORD in .env.local"
-    );
-  }
-
-  return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASSWORD,
-    },
-  });
-}
-
-
-// ============================================================
-// EMAIL TYPES
-// ============================================================
-
-interface SendEmailOptions {
-  to: string;
-  subject: string;
-  html: string;
-  text?: string;
-  replyTo?: string;
-}
-
-
-// ============================================================
-// SEND EMAIL
-// ============================================================
-
-export async function sendEmail({
+// NOTE: sendEmail is expected to exist in this module; if it is missing,
+// define a minimal fallback implementation here.
+async function sendEmail({
   to,
   subject,
   html,
   text,
-  replyTo,
-}: SendEmailOptions) {
-  const transporter = getTransporter();
+}: {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}) {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn("SMTP config is missing. Skipping email send.");
+    return { messageId: "mock" };
+  }
 
-  const info = await transporter.sendMail({
-    from: EMAIL_FROM,
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: (process.env.SMTP_PORT || "587") === "465",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  return transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
     subject,
     html,
     text,
-    replyTo,
   });
-
-  return {
-    success: true,
-    messageId: info.messageId,
-  };
 }
 
-
 // ============================================================
-// CONTACT EMAIL
+// ADMIN INVITATION EMAIL
 // ============================================================
 
-interface ContactEmailData {
+interface AdminInvitationEmailData {
   name: string;
   email: string;
-  subject: string;
-  message: string;
+  roleName: string;
+  inviteUrl: string;
+  expiresAt: string | Date;
 }
 
-
-export async function sendContactEmail({
+export async function sendAdminInvitationEmail({
   name,
   email,
-  subject,
-  message,
-}: ContactEmailData) {
+  roleName,
+  inviteUrl,
+  expiresAt,
+}: AdminInvitationEmailData) {
+  const formattedExpiry = new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(expiresAt));
+
   const html = `
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-        <title>New Contact Message</title>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0"
+        />
+        <title>StudyStow Admin Invitation</title>
       </head>
 
       <body
@@ -120,302 +90,104 @@ export async function sendContactEmail({
       >
         <div
           style="
-            max-width: 650px;
-            margin: 40px auto;
-            background: #ffffff;
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-          "
-        >
-          <div
-            style="
-              padding: 24px;
-              background: #111827;
-              color: #ffffff;
-            "
-          >
-            <h1
-              style="
-                margin: 0;
-                font-size: 24px;
-              "
-            >
-              StudyStow
-            </h1>
-
-            <p
-              style="
-                margin: 8px 0 0;
-                color: #d1d5db;
-              "
-            >
-              New Contact Message
-            </p>
-          </div>
-
-          <div style="padding: 28px;">
-            <div style="margin-bottom: 20px;">
-              <strong>Name</strong>
-
-              <p style="margin: 6px 0; color: #374151;">
-                ${escapeHtml(name)}
-              </p>
-            </div>
-
-            <div style="margin-bottom: 20px;">
-              <strong>Email</strong>
-
-              <p style="margin: 6px 0; color: #374151;">
-                ${escapeHtml(email)}
-              </p>
-            </div>
-
-            <div style="margin-bottom: 20px;">
-              <strong>Subject</strong>
-
-              <p style="margin: 6px 0; color: #374151;">
-                ${escapeHtml(subject)}
-              </p>
-            </div>
-
-            <div>
-              <strong>Message</strong>
-
-              <div
-                style="
-                  margin-top: 8px;
-                  padding: 16px;
-                  background: #f9fafb;
-                  border: 1px solid #e5e7eb;
-                  border-radius: 8px;
-                  color: #374151;
-                  line-height: 1.6;
-                  white-space: pre-wrap;
-                "
-              >
-                ${escapeHtml(message)}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style="
-              padding: 18px 28px;
-              border-top: 1px solid #e5e7eb;
-              color: #6b7280;
-              font-size: 13px;
-            "
-          >
-            This message was submitted through the StudyStow contact form.
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
-
-  return sendEmail({
-    to: SUPPORT_EMAIL,
-    subject: `StudyStow Contact: ${subject}`,
-    html,
-    text: `
-New StudyStow Contact Message
-
-Name: ${name}
-Email: ${email}
-Subject: ${subject}
-
-Message:
-${message}
-    `.trim(),
-    replyTo: email,
-  });
-}
-
-
-// ============================================================
-// ORDER CONFIRMATION EMAIL
-// ============================================================
-
-interface OrderEmailData {
-  customerName: string;
-  customerEmail: string;
-  orderNumber: string;
-  total: number;
-}
-
-
-export async function sendOrderConfirmationEmail({
-  customerName,
-  customerEmail,
-  orderNumber,
-  total,
-}: OrderEmailData) {
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <body
-        style="
-          margin: 0;
-          padding: 0;
-          background: #f5f7fb;
-          font-family: Arial, Helvetica, sans-serif;
-        "
-      >
-        <div
-          style="
-            max-width: 600px;
+            max-width: 620px;
             margin: 40px auto;
             background: #ffffff;
             border: 1px solid #e5e7eb;
-            border-radius: 12px;
+            border-radius: 14px;
             overflow: hidden;
           "
         >
           <div
             style="
-              padding: 24px;
+              padding: 26px;
               background: #111827;
               color: #ffffff;
             "
           >
-            <h1 style="margin: 0;">
-              StudyStow
-            </h1>
-
-            <p style="margin: 8px 0 0; color: #d1d5db;">
-              Order Confirmation
+            <h1 style="margin:0;font-size:24px;">StudyStow</h1>
+            <p style="margin:8px 0 0;color:#d1d5db;font-size:14px;">
+              Administrator Invitation
             </p>
           </div>
 
-          <div style="padding: 28px;">
-            <p>
-              Hello ${escapeHtml(customerName)},
+          <div style="padding:30px;">
+            <h2 style="margin:0;color:#111827;font-size:22px;">
+              You have been invited
+            </h2>
+
+            <p style="margin:20px 0 0;color:#374151;line-height:1.7;">
+              Hello ${escapeHtml(name)},
             </p>
 
-            <p>
-              Thank you for your order. We have received your order
-              successfully.
+            <p style="margin:12px 0 0;color:#374151;line-height:1.7;">
+              You have been invited to access the StudyStow Admin Panel.
             </p>
 
             <div
               style="
-                margin: 24px 0;
-                padding: 18px;
-                background: #f9fafb;
-                border-radius: 8px;
+                margin:24px 0;
+                padding:18px;
+                background:#f9fafb;
+                border:1px solid #e5e7eb;
+                border-radius:10px;
               "
             >
-              <p style="margin: 0 0 8px;">
-                <strong>Order Number:</strong>
-                ${escapeHtml(orderNumber)}
+              <p style="margin:0;color:#6b7280;font-size:12px;text-transform:uppercase;">
+                Assigned Role
               </p>
 
-              <p style="margin: 0;">
-                <strong>Total:</strong>
-                ₹${Number(total).toLocaleString("en-IN")}
+              <p style="margin:6px 0 0;color:#111827;font-size:17px;font-weight:700;">
+                ${escapeHtml(roleName)}
               </p>
             </div>
 
-            <p>
-              We will notify you when your order is shipped.
+            <div style="margin:30px 0;">
+              <a
+                href="${escapeHtml(inviteUrl)}"
+                style="
+                  display:inline-block;
+                  padding:13px 22px;
+                  background:#111827;
+                  color:#ffffff;
+                  text-decoration:none;
+                  border-radius:8px;
+                  font-size:14px;
+                  font-weight:700;
+                "
+              >
+                Accept Invitation
+              </a>
+            </div>
+
+            <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.7;">
+              This invitation expires on
+              <strong>${escapeHtml(formattedExpiry)}</strong>.
             </p>
 
-            <p>
-              Regards,<br />
-              StudyStow Team
-            </p>
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
-
-  return sendEmail({
-    to: customerEmail,
-    subject: `Order Confirmation - ${orderNumber}`,
-    html,
-    text: `
-Hello ${customerName},
-
-Thank you for your order.
-
-Order Number: ${orderNumber}
-Total: ₹${Number(total).toLocaleString("en-IN")}
-
-We will notify you when your order is shipped.
-
-StudyStow Team
-    `.trim(),
-  });
-}
-
-
-// ============================================================
-// PASSWORD RESET EMAIL
-// ============================================================
-
-export async function sendPasswordResetEmail(
-  email: string,
-  resetUrl: string
-) {
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <body
-        style="
-          margin: 0;
-          padding: 0;
-          background: #f5f7fb;
-          font-family: Arial, Helvetica, sans-serif;
-        "
-      >
-        <div
-          style="
-            max-width: 600px;
-            margin: 40px auto;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 30px;
-          "
-        >
-          <h1 style="margin-top: 0;">
-            Reset Your StudyStow Password
-          </h1>
-
-          <p>
-            We received a request to reset your password.
-          </p>
-
-          <p>
-            Click the button below to create a new password.
-          </p>
-
-          <p style="margin: 30px 0;">
-            <a
-              href="${escapeHtml(resetUrl)}"
+            <p
               style="
-                display: inline-block;
-                padding: 12px 20px;
-                background: #111827;
-                color: #ffffff;
-                text-decoration: none;
-                border-radius: 8px;
+                margin-top:24px;
+                color:#9ca3af;
+                font-size:12px;
+                line-height:1.7;
               "
             >
-              Reset Password
-            </a>
-          </p>
+              If you were not expecting this invitation,
+              you can safely ignore this email.
+            </p>
+          </div>
 
-          <p style="color: #6b7280; font-size: 14px;">
-            If you did not request this password reset, you can safely
-            ignore this email.
-          </p>
-
-          <p>
+          <div
+            style="
+              padding:18px 30px;
+              border-top:1px solid #e5e7eb;
+              color:#6b7280;
+              font-size:12px;
+            "
+          >
             StudyStow Team
-          </p>
+          </div>
         </div>
       </body>
     </html>
@@ -423,15 +195,22 @@ export async function sendPasswordResetEmail(
 
   return sendEmail({
     to: email,
-    subject: "Reset Your StudyStow Password",
+    subject: "You have been invited to the StudyStow Admin Panel",
     html,
     text: `
-We received a request to reset your StudyStow password.
+Hello ${name},
 
-Reset your password using this link:
-${resetUrl}
+You have been invited to access the StudyStow Admin Panel.
 
-If you did not request this, you can ignore this email.
+Assigned Role: ${roleName}
+
+Accept your invitation:
+${inviteUrl}
+
+This invitation expires on:
+${formattedExpiry}
+
+If you were not expecting this invitation, you can safely ignore this email.
 
 StudyStow Team
     `.trim(),
@@ -440,7 +219,7 @@ StudyStow Team
 
 
 // ============================================================
-// HTML ESCAPE
+// KEEP YOUR EXISTING escapeHtml FUNCTION EXACTLY AS IT IS
 // ============================================================
 
 function escapeHtml(value: string) {

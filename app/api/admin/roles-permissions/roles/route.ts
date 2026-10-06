@@ -8,19 +8,69 @@ import Role from "@/models/Role";
 export const dynamic = "force-dynamic";
 
 function isOwner(user: any) {
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+  const adminRole = String(user?.adminRole || "")
+    .trim()
+    .toLowerCase();
+
+  const email = String(user?.email || "")
+    .trim()
+    .toLowerCase();
+
+  const ownerEmail = String(
+    process.env.ADMIN_OWNER_EMAIL || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const status = String(user?.status || "")
+    .trim()
+    .toLowerCase();
+
+  const active =
+    user?.active !== false &&
+    !["suspended", "removed"].includes(status);
+
+  const explicitOwner =
+    role === "owner" ||
+    role === "super_admin" ||
+    role === "super-admin" ||
+    adminRole === "owner" ||
+    adminRole === "super_admin" ||
+    adminRole === "super-admin";
+
+  if (explicitOwner) {
+    return active;
+  }
+
   return (
-    user?.role === "owner" ||
-    user?.adminRole === "owner" ||
-    user?.adminRole === "super_admin"
+    !!ownerEmail &&
+    email === ownerEmail &&
+    active
   );
 }
 
 function isAdmin(user: any) {
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+  const adminRole = String(user?.adminRole || "")
+    .trim()
+    .toLowerCase();
+
   return (
-    user?.role === "admin" ||
-    user?.role === "owner" ||
-    user?.adminRole === "owner" ||
-    user?.adminRole === "super_admin"
+    role === "admin" ||
+    role === "owner" ||
+    role === "super_admin" ||
+    role === "super-admin" ||
+    adminRole === "admin" ||
+    adminRole === "owner" ||
+    adminRole === "super_admin" ||
+    adminRole === "super-admin"
   );
 }
 
@@ -34,9 +84,6 @@ function createSlug(value: string) {
 
 /**
  * Create default system roles if they do not exist.
- *
- * These roles are created only once.
- * Existing roles are never overwritten.
  */
 async function ensureDefaultRoles(createdBy?: string) {
   const defaultRoles = [
@@ -102,7 +149,6 @@ async function ensureDefaultRoles(createdBy?: string) {
       },
       isSystem: true,
     },
-
     {
       name: "Staff",
       slug: "staff",
@@ -166,7 +212,10 @@ async function ensureDefaultRoles(createdBy?: string) {
 }
 
 /**
- * GET /api/admin/roles-permissions/roles
+ * GET
+ * /api/admin/roles-permissions/roles
+ *
+ * Owner + Admin can view roles.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -196,14 +245,12 @@ export async function GET(request: NextRequest) {
 
     await connectDB();
 
-    /**
-     * Make sure the default roles exist.
-     */
     await ensureDefaultRoles(
       sessionUser.id || sessionUser._id
     );
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams } =
+      new URL(request.url);
 
     const search =
       searchParams.get("search")?.trim() || "";
@@ -248,25 +295,23 @@ export async function GET(request: NextRequest) {
     const data = roles.map((role: any) => ({
       id: String(role._id),
       _id: String(role._id),
-
       name: role.name || "",
       slug: role.slug || "",
       description: role.description || "",
-
       permissions: role.permissions || {},
-
       isSystem: Boolean(role.isSystem),
-
       createdBy: role.createdBy
         ? String(role.createdBy)
         : null,
-
       createdAt: role.createdAt
-        ? new Date(role.createdAt).toISOString()
+        ? new Date(
+            role.createdAt
+          ).toISOString()
         : null,
-
       updatedAt: role.updatedAt
-        ? new Date(role.updatedAt).toISOString()
+        ? new Date(
+            role.updatedAt
+          ).toISOString()
         : null,
     }));
 
@@ -291,13 +336,16 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/admin/roles-permissions/roles
+ * POST
+ * /api/admin/roles-permissions/roles
  *
  * Only Owner can create custom roles.
  */
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(
+      authOptions
+    );
 
     if (!session?.user) {
       return NextResponse.json(
@@ -315,15 +363,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "Only the owner can create roles.",
+          message:
+            "Only the owner can create roles.",
         },
         { status: 403 }
       );
     }
 
-    const body = await request.json();
+    const body = await request
+      .json()
+      .catch(() => null);
 
-    const name = String(body?.name || "").trim();
+    const name = String(
+      body?.name || ""
+    ).trim();
 
     const description = String(
       body?.description || ""
@@ -376,7 +429,9 @@ export async function POST(request: NextRequest) {
       "superadmin",
     ];
 
-    if (protectedSlugs.includes(slug)) {
+    if (
+      protectedSlugs.includes(slug)
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -389,22 +444,26 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    const existingRole = await Role.findOne({
-      $or: [
-        {
-          name: {
-            $regex: `^${name.replace(
-              /[.*+?^${}()|[\]\\]/g,
-              "\\$&"
-            )}$`,
-            $options: "i",
+    const escapedName =
+      name.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
+    const existingRole =
+      await Role.findOne({
+        $or: [
+          {
+            name: {
+              $regex: `^${escapedName}$`,
+              $options: "i",
+            },
           },
-        },
-        {
-          slug,
-        },
-      ],
-    }).lean();
+          {
+            slug,
+          },
+        ],
+      }).lean();
 
     if (existingRole) {
       return NextResponse.json(
@@ -418,7 +477,9 @@ export async function POST(request: NextRequest) {
     }
 
     const createdBy =
-      sessionUser.id || sessionUser._id;
+      sessionUser.id ||
+      sessionUser._id ||
+      null;
 
     const role = await Role.create({
       name,
@@ -432,32 +493,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        message: "Role created successfully.",
+        message:
+          "Role created successfully.",
         data: {
           id: String(role._id),
           _id: String(role._id),
-
           name: role.name,
           slug: role.slug,
-
           description:
             role.description || "",
-
           permissions:
             role.permissions || {},
-
           isSystem: Boolean(
             role.isSystem
           ),
-
           createdBy: role.createdBy
-            ? String(role.createdBy)
+            ? String(
+                role.createdBy
+              )
             : null,
-
           createdAt:
             role.createdAt?.toISOString?.() ||
             null,
-
           updatedAt:
             role.updatedAt?.toISOString?.() ||
             null,
@@ -485,7 +542,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to create role.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to create role.",
       },
       { status: 500 }
     );

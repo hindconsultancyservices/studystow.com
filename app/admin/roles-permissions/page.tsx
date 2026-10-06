@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -18,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 
+import RolesPermissionsInvitations from "@/components/admin/RolesPermissionsInvitations";
+
 type PermissionAction =
   | "view"
   | "create"
@@ -30,10 +33,7 @@ type PermissionAction =
   | "suspend"
   | "remove";
 
-type PermissionMap = Record<
-  string,
-  PermissionAction[]
->;
+type PermissionMap = Record<string, PermissionAction[]>;
 
 type Role = {
   _id: string;
@@ -158,10 +158,7 @@ const PERMISSION_MODULES = [
   },
 ] as const;
 
-const ACTION_LABELS: Record<
-  PermissionAction,
-  string
-> = {
+const ACTION_LABELS: Record<PermissionAction, string> = {
   view: "View",
   create: "Create",
   edit: "Edit",
@@ -194,15 +191,11 @@ function normalizePermissions(
   }
 
   for (const module of PERMISSION_MODULES) {
-    const current =
-      permissions[module.key] || [];
+    const current = permissions[module.key] || [];
 
-    normalized[module.key] =
-      module.actions.filter((action) =>
-        current.includes(
-          action as PermissionAction
-        )
-      ) as PermissionAction[];
+    normalized[module.key] = module.actions.filter((action) =>
+      current.includes(action as PermissionAction)
+    ) as PermissionAction[];
   }
 
   return normalized;
@@ -223,9 +216,7 @@ function formatDate(value?: string) {
   }).format(date);
 }
 
-function statusClasses(
-  status: string
-) {
+function statusClasses(status: string) {
   switch (status) {
     case "active":
       return "bg-emerald-50 text-emerald-700";
@@ -245,63 +236,55 @@ function statusClasses(
 }
 
 export default function RolesPermissionsPage() {
-  const [users, setUsers] = useState<AdminUser[]>(
-    []
-  );
+  const [users, setUsers] = useState<AdminUser[]>([]);
 
   const [roles, setRoles] = useState<Role[]>([]);
 
-  const [pagination, setPagination] =
-    useState<Pagination>({
-      page: 1,
-      limit: 20,
-      total: 0,
-      totalPages: 1,
-    });
+  const [pagination, setPagination] = useState<Pagination>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 1,
+  });
 
   const [activeTab, setActiveTab] = useState<
-    "users" | "roles"
+    "users" | "invitations" | "roles"
   >("users");
 
+  const [invitationRefreshKey, setInvitationRefreshKey] =
+    useState(0);
+
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] =
-    useState("all");
 
-  const [loading, setLoading] =
-    useState(true);
+  const [statusFilter, setStatusFilter] = useState("all");
 
-  const [saving, setSaving] =
-    useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [error, setError] =
-    useState("");
+  const [saving, setSaving] = useState(false);
 
-  const [showInvite, setShowInvite] =
-    useState(false);
+  const [error, setError] = useState("");
 
-  const [showRoleModal, setShowRoleModal] =
-    useState(false);
+  const [showInvite, setShowInvite] = useState(false);
 
-  const [editingRole, setEditingRole] =
-    useState<Role | null>(null);
+  const [showRoleModal, setShowRoleModal] = useState(false);
 
-  const [inviteForm, setInviteForm] =
-    useState({
-      name: "",
-      email: "",
-      roleId: "",
-    });
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
 
-  const [roleForm, setRoleForm] =
-    useState<{
-      name: string;
-      description: string;
-      permissions: PermissionMap;
-    }>({
-      name: "",
-      description: "",
-      permissions: createEmptyPermissions(),
-    });
+  const [inviteForm, setInviteForm] = useState({
+    name: "",
+    email: "",
+    roleId: "",
+  });
+
+  const [roleForm, setRoleForm] = useState<{
+    name: string;
+    description: string;
+    permissions: PermissionMap;
+  }>({
+    name: "",
+    description: "",
+    permissions: createEmptyPermissions(),
+  });
 
   const fetchUsers = useCallback(
     async (page = 1) => {
@@ -309,23 +292,14 @@ export default function RolesPermissionsPage() {
 
       params.set("type", "users");
       params.set("page", String(page));
-      params.set(
-        "limit",
-        String(pagination.limit)
-      );
+      params.set("limit", String(pagination.limit));
 
       if (search.trim()) {
         params.set("search", search.trim());
       }
 
-      if (
-        statusFilter &&
-        statusFilter !== "all"
-      ) {
-        params.set(
-          "status",
-          statusFilter
-        );
+      if (statusFilter && statusFilter !== "all") {
+        params.set("status", statusFilter);
       }
 
       const response = await fetch(
@@ -337,18 +311,14 @@ export default function RolesPermissionsPage() {
         }
       );
 
-      const data: UsersResponse =
-        await response.json().catch(() => ({
-          success: false,
-          data: [],
-          message:
-            "Invalid server response.",
-        }));
+      const data: UsersResponse = await response.json().catch(() => ({
+        success: false,
+        data: [],
+        message: "Invalid server response.",
+      }));
 
       if (response.status === 401) {
-        throw new Error(
-          "You are not authorized."
-        );
+        throw new Error("You are not authorized.");
       }
 
       if (response.status === 403) {
@@ -357,93 +327,65 @@ export default function RolesPermissionsPage() {
         );
       }
 
-      if (
-        !response.ok ||
-        !data.success
-      ) {
+      if (!response.ok || !data.success) {
         throw new Error(
-          data.message ||
-            "Unable to load administrators."
+          data.message || "Unable to load administrators."
         );
       }
 
-      setUsers(
-        Array.isArray(data.data)
-          ? data.data
-          : []
-      );
+      setUsers(Array.isArray(data.data) ? data.data : []);
 
       if (data.pagination) {
         setPagination({
           page: Number(data.pagination.page || 1),
           limit: Number(data.pagination.limit || 20),
           total: Number(data.pagination.total || 0),
-          totalPages: Number(data.pagination.totalPages ?? 1),
+          totalPages: Number(
+            data.pagination.totalPages ?? 1
+          ),
         });
       }
     },
-    [
-      pagination.limit,
-      search,
-      statusFilter,
-    ]
+    [pagination.limit, search, statusFilter]
   );
 
-  const fetchRoles = useCallback(
-    async () => {
-      const response = await fetch(
-        "/api/admin/roles-permissions/roles",
-        {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        }
+  const fetchRoles = useCallback(async () => {
+    const response = await fetch(
+      "/api/admin/roles-permissions/roles",
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      }
+    );
+
+    const data: RolesResponse = await response.json().catch(() => ({
+      success: false,
+      data: [],
+      message: "Invalid server response.",
+    }));
+
+    if (response.status === 401) {
+      throw new Error("You are not authorized.");
+    }
+
+    if (response.status === 403) {
+      throw new Error(
+        "You do not have permission to manage roles."
       );
+    }
 
-      const data: RolesResponse =
-        await response.json().catch(() => ({
-          success: false,
-          data: [],
-          message:
-            "Invalid server response.",
-        }));
-
-      if (response.status === 401) {
-        throw new Error(
-          "You are not authorized."
-        );
-      }
-
-      if (response.status === 403) {
-        throw new Error(
-          "You do not have permission to manage roles."
-        );
-      }
-
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        throw new Error(
-          data.message ||
-            "Unable to load roles."
-        );
-      }
-
-      setRoles(
-        Array.isArray(data.data)
-          ? data.data
-          : []
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.message || "Unable to load roles."
       );
-    },
-    []
-  );
+    }
+
+    setRoles(Array.isArray(data.data) ? data.data : []);
+  }, []);
 
   const loadData = useCallback(
-    async (
-      page = 1,
-      showLoader = true
-    ) => {
+    async (page = 1, showLoader = true) => {
       try {
         setError("");
 
@@ -478,8 +420,7 @@ export default function RolesPermissionsPage() {
   }, [statusFilter]);
 
   const filteredUsers = useMemo(() => {
-    const query =
-      search.trim().toLowerCase();
+    const query = search.trim().toLowerCase();
 
     if (!query) {
       return users;
@@ -487,12 +428,8 @@ export default function RolesPermissionsPage() {
 
     return users.filter((user) => {
       return (
-        user.name
-          .toLowerCase()
-          .includes(query) ||
-        user.email
-          .toLowerCase()
-          .includes(query) ||
+        user.name.toLowerCase().includes(query) ||
+        user.email.toLowerCase().includes(query) ||
         user.roleData?.name
           ?.toLowerCase()
           .includes(query)
@@ -506,8 +443,7 @@ export default function RolesPermissionsPage() {
     setRoleForm({
       name: "",
       description: "",
-      permissions:
-        createEmptyPermissions(),
+      permissions: createEmptyPermissions(),
     });
 
     setError("");
@@ -519,12 +455,8 @@ export default function RolesPermissionsPage() {
 
     setRoleForm({
       name: role.name,
-      description:
-        role.description || "",
-      permissions:
-        normalizePermissions(
-          role.permissions
-        ),
+      description: role.description || "",
+      permissions: normalizePermissions(role.permissions),
     });
 
     setError("");
@@ -537,26 +469,17 @@ export default function RolesPermissionsPage() {
   ) => {
     setRoleForm((current) => {
       const currentActions =
-        current.permissions[
-          moduleKey
-        ] || [];
+        current.permissions[moduleKey] || [];
 
-      const exists =
-        currentActions.includes(action);
+      const exists = currentActions.includes(action);
 
       return {
         ...current,
         permissions: {
           ...current.permissions,
           [moduleKey]: exists
-            ? currentActions.filter(
-                (item) =>
-                  item !== action
-              )
-            : [
-                ...currentActions,
-                action,
-              ],
+            ? currentActions.filter((item) => item !== action)
+            : [...currentActions, action],
         },
       };
     });
@@ -568,9 +491,7 @@ export default function RolesPermissionsPage() {
   ) => {
     setRoleForm((current) => {
       const currentActions =
-        current.permissions[
-          moduleKey
-        ] || [];
+        current.permissions[moduleKey] || [];
 
       const allSelected =
         actions.length > 0 &&
@@ -586,9 +507,7 @@ export default function RolesPermissionsPage() {
           ...current.permissions,
           [moduleKey]: allSelected
             ? []
-            : [
-                ...(actions as PermissionAction[]),
-              ],
+            : [...(actions as PermissionAction[])],
         },
       };
     });
@@ -600,9 +519,7 @@ export default function RolesPermissionsPage() {
     event.preventDefault();
 
     if (!roleForm.name.trim()) {
-      setError(
-        "Role name is required."
-      );
+      setError("Role name is required.");
       return;
     }
 
@@ -614,71 +531,44 @@ export default function RolesPermissionsPage() {
         ? `/api/admin/roles-permissions/roles/${editingRole._id}`
         : "/api/admin/roles-permissions/roles";
 
-      const method = editingRole
-        ? "PATCH"
-        : "POST";
+      const method = editingRole ? "PATCH" : "POST";
 
-      const response = await fetch(
-        endpoint,
-        {
-          method,
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            name: roleForm.name.trim(),
-            description:
-              roleForm.description.trim(),
-            permissions:
-              roleForm.permissions,
-          }),
-        }
-      );
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          name: roleForm.name.trim(),
+          description: roleForm.description.trim(),
+          permissions: roleForm.permissions,
+        }),
+      });
 
-      const data =
-        await response
-          .json()
-          .catch(() => null);
+      const data = await response.json().catch(() => null);
 
-      if (
-        response.status === 401
-      ) {
-        throw new Error(
-          "Your session has expired."
-        );
+      if (response.status === 401) {
+        throw new Error("Your session has expired.");
       }
 
-      if (
-        response.status === 403
-      ) {
+      if (response.status === 403) {
         throw new Error(
           "You do not have permission to modify roles."
         );
       }
 
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
+      if (!response.ok || !data?.success) {
         throw new Error(
-          data?.message ||
-            "Unable to save role."
+          data?.message || "Unable to save role."
         );
       }
 
       setShowRoleModal(false);
 
-      await loadData(
-        pagination.page,
-        false
-      );
+      await loadData(pagination.page, false);
     } catch (err) {
-      console.error(
-        "Save role error:",
-        err
-      );
+      console.error("Save role error:", err);
 
       setError(
         err instanceof Error
@@ -715,47 +605,36 @@ export default function RolesPermissionsPage() {
         {
           method: "POST",
           headers: {
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           credentials: "include",
           body: JSON.stringify({
             name: inviteForm.name.trim(),
-            email:
-              inviteForm.email
-                .trim()
-                .toLowerCase(),
-            roleId:
-              inviteForm.roleId,
+            email: inviteForm.email
+              .trim()
+              .toLowerCase(),
+            roleId: inviteForm.roleId,
           }),
         }
       );
 
-      const data =
-        await response
-          .json()
-          .catch(() => null);
+      const data = await response
+        .json()
+        .catch(() => null);
 
-      if (
-        response.status === 401
-      ) {
+      if (response.status === 401) {
         throw new Error(
           "Your session has expired."
         );
       }
 
-      if (
-        response.status === 403
-      ) {
+      if (response.status === 403) {
         throw new Error(
           "You do not have permission to invite administrators."
         );
       }
 
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
+      if (!response.ok || !data?.success) {
         throw new Error(
           data?.message ||
             "Unable to send invitation."
@@ -770,10 +649,19 @@ export default function RolesPermissionsPage() {
         roleId: "",
       });
 
-      await loadData(
-        1,
-        false
+      /*
+       * Refresh the invitation tab.
+       */
+      setInvitationRefreshKey(
+        (current) => current + 1
       );
+
+      /*
+       * Also refresh the administrator list because
+       * your existing invite API may create/promote
+       * the User record immediately.
+       */
+      await loadData(1, false);
     } catch (err) {
       console.error(
         "Invitation error:",
@@ -797,7 +685,7 @@ export default function RolesPermissionsPage() {
       | "activate"
       | "remove"
   ) => {
-    if (user.isOwner || user.adminRole === "owner" || user.adminRole === "super_admin" || user.role === "owner") {
+    if (user.role === "owner") {
       setError(
         "The Owner account is protected and cannot be modified here."
       );
@@ -826,36 +714,50 @@ export default function RolesPermissionsPage() {
       const response = await fetch(
         `/api/admin/roles-permissions/${user._id}/${action}`,
         {
-          method: "PATCH",
+          method:
+            action === "remove"
+              ? "DELETE"
+              : "PATCH",
           credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          ...(action === "remove"
+            ? {
+                body: JSON.stringify({
+                  reason:
+                    "Administrator removed by owner.",
+                }),
+              }
+            : {}),
         }
       );
 
-      const data =
-        await response
-          .json()
-          .catch(() => null);
+      const data = await response
+        .json()
+        .catch(() => null);
 
-      if (
-        response.status === 401
-      ) {
+      if (response.status === 401) {
         throw new Error(
           "Your session has expired."
         );
       }
 
-      if (
-        response.status === 403
-      ) {
+      if (response.status === 403) {
         throw new Error(
-          "You do not have permission to perform this action."
+          data?.message ||
+            "You do not have permission to perform this action."
         );
       }
 
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
+      if (response.status === 404) {
+        throw new Error(
+          data?.message ||
+            "Administrator not found."
+        );
+      }
+
+      if (!response.ok || !data?.success) {
         throw new Error(
           data?.message ||
             `Unable to ${actionText} administrator.`
@@ -882,9 +784,7 @@ export default function RolesPermissionsPage() {
     }
   };
 
-  const deleteRole = async (
-    role: Role
-  ) => {
+  const deleteRole = async (role: Role) => {
     if (role.isSystem) {
       setError(
         "System roles cannot be deleted."
@@ -912,31 +812,23 @@ export default function RolesPermissionsPage() {
         }
       );
 
-      const data =
-        await response
-          .json()
-          .catch(() => null);
+      const data = await response
+        .json()
+        .catch(() => null);
 
-      if (
-        response.status === 401
-      ) {
+      if (response.status === 401) {
         throw new Error(
           "Your session has expired."
         );
       }
 
-      if (
-        response.status === 403
-      ) {
+      if (response.status === 403) {
         throw new Error(
           "You do not have permission to delete roles."
         );
       }
 
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
+      if (!response.ok || !data?.success) {
         throw new Error(
           data?.message ||
             "Unable to delete role."
@@ -963,6 +855,22 @@ export default function RolesPermissionsPage() {
     }
   };
 
+  const handlePageRefresh = () => {
+    if (activeTab === "invitations") {
+      setInvitationRefreshKey(
+        (current) => current + 1
+      );
+      return;
+    }
+
+    void loadData(
+      activeTab === "roles"
+        ? pagination.page
+        : pagination.page,
+      true
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
@@ -978,36 +886,28 @@ export default function RolesPermissionsPage() {
             </div>
 
             <p className="mt-1 text-sm text-slate-500">
-              Control administrator access using real database roles and permissions.
+              Control administrator access using real database
+              roles and permissions.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() =>
-                loadData(
-                  pagination.page,
-                  true
-                )
-              }
-              disabled={
-                loading || saving
-              }
+              onClick={handlePageRefresh}
+              disabled={loading || saving}
               className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw
                 className={`h-4 w-4 ${
-                  loading
-                    ? "animate-spin"
-                    : ""
+                  loading ? "animate-spin" : ""
                 }`}
               />
 
               Refresh
             </button>
 
-            {activeTab === "users" ? (
+            {activeTab !== "roles" ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1047,9 +947,7 @@ export default function RolesPermissionsPage() {
 
             <button
               type="button"
-              onClick={() =>
-                setError("")
-              }
+              onClick={() => setError("")}
               className="rounded-lg p-1 text-red-600 hover:bg-red-100"
             >
               <X className="h-4 w-4" />
@@ -1058,13 +956,11 @@ export default function RolesPermissionsPage() {
         )}
 
         {/* TABS */}
-        <div className="flex border-b border-slate-200">
+        <div className="flex overflow-x-auto border-b border-slate-200">
           <button
             type="button"
-            onClick={() =>
-              setActiveTab("users")
-            }
-            className={`border-b-2 px-5 py-3 text-sm font-semibold transition ${
+            onClick={() => setActiveTab("users")}
+            className={`shrink-0 border-b-2 px-5 py-3 text-sm font-semibold transition ${
               activeTab === "users"
                 ? "border-slate-900 text-slate-900"
                 : "border-transparent text-slate-500 hover:text-slate-900"
@@ -1080,9 +976,21 @@ export default function RolesPermissionsPage() {
           <button
             type="button"
             onClick={() =>
-              setActiveTab("roles")
+              setActiveTab("invitations")
             }
-            className={`border-b-2 px-5 py-3 text-sm font-semibold transition ${
+            className={`shrink-0 border-b-2 px-5 py-3 text-sm font-semibold transition ${
+              activeTab === "invitations"
+                ? "border-slate-900 text-slate-900"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            Invitations
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("roles")}
+            className={`shrink-0 border-b-2 px-5 py-3 text-sm font-semibold transition ${
               activeTab === "roles"
                 ? "border-slate-900 text-slate-900"
                 : "border-transparent text-slate-500 hover:text-slate-900"
@@ -1107,16 +1015,11 @@ export default function RolesPermissionsPage() {
                   <input
                     value={search}
                     onChange={(event) =>
-                      setSearch(
-                        event.target.value
-                      )
+                      setSearch(event.target.value)
                     }
                     onKeyDown={(event) => {
-                      if (
-                        event.key ===
-                        "Enter"
-                      ) {
-                        loadData(1);
+                      if (event.key === "Enter") {
+                        void loadData(1);
                       }
                     }}
                     placeholder="Search administrators..."
@@ -1161,8 +1064,7 @@ export default function RolesPermissionsPage() {
                 <div className="flex min-h-[300px] items-center justify-center">
                   <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
                 </div>
-              ) : filteredUsers.length ===
-                0 ? (
+              ) : filteredUsers.length === 0 ? (
                 <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
                   <Shield className="h-10 w-10 text-slate-300" />
 
@@ -1171,7 +1073,8 @@ export default function RolesPermissionsPage() {
                   </h3>
 
                   <p className="mt-1 max-w-md text-sm text-slate-500">
-                    There are no matching administrator records in MongoDB.
+                    There are no matching administrator
+                    records in MongoDB.
                   </p>
                 </div>
               ) : (
@@ -1203,285 +1106,248 @@ export default function RolesPermissionsPage() {
                       </thead>
 
                       <tbody className="divide-y">
-                        {filteredUsers.map(
-                          (user) => {
-                            const status =
-                              user.status ||
-                              "active";
+                        {filteredUsers.map((user) => {
+                          const status =
+                            user.status ||
+                            "active";
 
-                            const owner =
-                              user.role ===
-                              "owner";
+                          const owner =
+                            user.role === "owner";
 
-                            return (
-                              <tr
-                                key={
-                                  user._id
-                                }
-                                className="transition hover:bg-slate-50"
-                              >
-                                <td className="px-5 py-4">
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
-                                      <Shield className="h-5 w-5 text-slate-600" />
-                                    </div>
-
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold text-slate-900">
-                                        {
-                                          user.name
-                                        }
-                                      </p>
-
-                                      <p className="truncate text-xs text-slate-500">
-                                        {
-                                          user.email
-                                        }
-                                      </p>
-                                    </div>
+                          return (
+                            <tr
+                              key={user._id}
+                              className="transition hover:bg-slate-50"
+                            >
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
+                                    <Shield className="h-5 w-5 text-slate-600" />
                                   </div>
-                                </td>
 
-                                <td className="px-5 py-4">
-                                  <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                                    {owner
-                                      ? "Owner / Super Admin"
-                                      : user
-                                          .roleData
-                                          ?.name ||
-                                        "Admin"}
-                                  </span>
-                                </td>
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                      {user.name}
+                                    </p>
 
-                                <td className="px-5 py-4">
-                                  <span
-                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClasses(
-                                      status
-                                    )}`}
-                                  >
-                                    {status
-                                      .charAt(
-                                        0
-                                      )
-                                      .toUpperCase() +
-                                      status.slice(
-                                        1
-                                      )}
-                                  </span>
-                                </td>
+                                    <p className="truncate text-xs text-slate-500">
+                                      {user.email}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
 
-                                <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-500">
-                                  {formatDate(
-                                    user.createdAt
-                                  )}
-                                </td>
+                              <td className="px-5 py-4">
+                                <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                                  {owner
+                                    ? "Owner / Super Admin"
+                                    : user.roleData
+                                        ?.name ||
+                                      "Admin"}
+                                </span>
+                              </td>
 
-                                <td className="px-5 py-4">
-                                  <div className="flex justify-end gap-2">
-                                    {!owner &&
-                                      status !==
-                                        "suspended" && (
-                                        <button
-                                          type="button"
-                                          disabled={
-                                            saving
-                                          }
-                                          onClick={() =>
-                                            changeUserStatus(
-                                              user,
-                                              "suspend"
-                                            )
-                                          }
-                                          title="Suspend administrator"
-                                          className="rounded-lg border p-2 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                                        >
-                                          <UserMinus className="h-4 w-4" />
-                                        </button>
-                                      )}
+                              <td className="px-5 py-4">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClasses(
+                                    status
+                                  )}`}
+                                >
+                                  {status
+                                    .charAt(0)
+                                    .toUpperCase() +
+                                    status.slice(1)}
+                                </span>
+                              </td>
 
-                                    {!owner &&
-                                      status ===
-                                        "suspended" && (
-                                        <button
-                                          type="button"
-                                          disabled={
-                                            saving
-                                          }
-                                          onClick={() =>
-                                            changeUserStatus(
-                                              user,
-                                              "activate"
-                                            )
-                                          }
-                                          title="Activate administrator"
-                                          className="rounded-lg border p-2 text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50"
-                                        >
-                                          <UserCheck className="h-4 w-4" />
-                                        </button>
-                                      )}
+                              <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-500">
+                                {formatDate(
+                                  user.createdAt
+                                )}
+                              </td>
 
-                                    {!owner && (
+                              <td className="px-5 py-4">
+                                <div className="flex justify-end gap-2">
+                                  {!owner &&
+                                    status !==
+                                      "suspended" && (
                                       <button
                                         type="button"
-                                        disabled={
-                                          saving
-                                        }
+                                        disabled={saving}
                                         onClick={() =>
                                           changeUserStatus(
                                             user,
-                                            "remove"
+                                            "suspend"
                                           )
                                         }
-                                        title="Remove administrator"
+                                        title="Suspend administrator"
                                         className="rounded-lg border p-2 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                                       >
-                                        <Trash2 className="h-4 w-4" />
+                                        <UserMinus className="h-4 w-4" />
                                       </button>
                                     )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          }
-                        )}
+
+                                  {!owner &&
+                                    status ===
+                                      "suspended" && (
+                                      <button
+                                        type="button"
+                                        disabled={saving}
+                                        onClick={() =>
+                                          changeUserStatus(
+                                            user,
+                                            "activate"
+                                          )
+                                        }
+                                        title="Activate administrator"
+                                        className="rounded-lg border p-2 text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50"
+                                      >
+                                        <UserCheck className="h-4 w-4" />
+                                      </button>
+                                    )}
+
+                                  {!owner && (
+                                    <button
+                                      type="button"
+                                      disabled={saving}
+                                      onClick={() =>
+                                        changeUserStatus(
+                                          user,
+                                          "remove"
+                                        )
+                                      }
+                                      title="Remove administrator"
+                                      className="rounded-lg border p-2 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
 
                   <div className="divide-y md:hidden">
-                    {filteredUsers.map(
-                      (user) => {
-                        const status =
-                          user.status ||
-                          "active";
+                    {filteredUsers.map((user) => {
+                      const status =
+                        user.status || "active";
 
-                        const owner =
-                          Boolean(user.isOwner) ||
-                          user.adminRole === "owner" ||
-                          user.adminRole === "super_admin" ||
-                          user.role === "owner";
+                      const owner =
+                        Boolean(user.isOwner) ||
+                        user.adminRole === "owner" ||
+                        user.adminRole === "super_admin" ||
+                        user.role === "owner";
 
-                        return (
-                          <div
-                            key={user._id}
-                            className="space-y-4 p-4"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex min-w-0 items-center gap-3">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
-                                  <Shield className="h-5 w-5 text-slate-600" />
-                                </div>
-
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900">
-                                    {
-                                      user.name
-                                    }
-                                  </p>
-
-                                  <p className="truncate text-xs text-slate-500">
-                                    {
-                                      user.email
-                                    }
-                                  </p>
-                                </div>
+                      return (
+                        <div
+                          key={user._id}
+                          className="space-y-4 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
+                                <Shield className="h-5 w-5 text-slate-600" />
                               </div>
 
-                              <span
-                                className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${statusClasses(
-                                  status
-                                )}`}
-                              >
-                                {status}
-                              </span>
-                            </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">
+                                  {user.name}
+                                </p>
 
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
-                                  {owner
-                                    ? "Owner / Super Admin"
-                                    : user
-                                        .roleData
-                                        ?.name ||
-                                      "Admin"}
-                                </span>
-
-                                <p className="mt-2 text-xs text-slate-400">
-                                  {formatDate(
-                                    user.createdAt
-                                  )}
+                                <p className="truncate text-xs text-slate-500">
+                                  {user.email}
                                 </p>
                               </div>
+                            </div>
 
-                              {!owner && (
-                                <div className="flex gap-2">
-                                  {status ===
-                                  "suspended" ? (
-                                    <button
-                                      type="button"
-                                      disabled={
-                                        saving
-                                      }
-                                      onClick={() =>
-                                        changeUserStatus(
-                                          user,
-                                          "activate"
-                                        )
-                                      }
-                                      className="rounded-lg border p-2 text-emerald-600"
-                                    >
-                                      <UserCheck className="h-4 w-4" />
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      disabled={
-                                        saving
-                                      }
-                                      onClick={() =>
-                                        changeUserStatus(
-                                          user,
-                                          "suspend"
-                                        )
-                                      }
-                                      className="rounded-lg border p-2 text-red-600"
-                                    >
-                                      <UserMinus className="h-4 w-4" />
-                                    </button>
-                                  )}
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${statusClasses(
+                                status
+                              )}`}
+                            >
+                              {status}
+                            </span>
+                          </div>
 
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
+                                {owner
+                                  ? "Owner / Super Admin"
+                                  : user.roleData
+                                      ?.name ||
+                                    "Admin"}
+                              </span>
+
+                              <p className="mt-2 text-xs text-slate-400">
+                                {formatDate(
+                                  user.createdAt
+                                )}
+                              </p>
+                            </div>
+
+                            {!owner && (
+                              <div className="flex gap-2">
+                                {status ===
+                                "suspended" ? (
                                   <button
                                     type="button"
-                                    disabled={
-                                      saving
-                                    }
+                                    disabled={saving}
                                     onClick={() =>
                                       changeUserStatus(
                                         user,
-                                        "remove"
+                                        "activate"
+                                      )
+                                    }
+                                    className="rounded-lg border p-2 text-emerald-600"
+                                  >
+                                    <UserCheck className="h-4 w-4" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() =>
+                                      changeUserStatus(
+                                        user,
+                                        "suspend"
                                       )
                                     }
                                     className="rounded-lg border p-2 text-red-600"
                                   >
-                                    <Trash2 className="h-4 w-4" />
+                                    <UserMinus className="h-4 w-4" />
                                   </button>
-                                </div>
-                              )}
-                            </div>
+                                )}
+
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() =>
+                                    changeUserStatus(
+                                      user,
+                                      "remove"
+                                    )
+                                  }
+                                  className="rounded-lg border p-2 text-red-600"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        );
-                      }
-                    )}
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {pagination.totalPages >
-                    1 && (
+                  {pagination.totalPages > 1 && (
                     <div className="flex flex-col gap-3 border-t px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm text-slate-500">
-                        Page{" "}
-                        {pagination.page}{" "}
-                        of{" "}
+                        Page {pagination.page} of{" "}
                         {pagination.totalPages}
                       </p>
 
@@ -1489,14 +1355,12 @@ export default function RolesPermissionsPage() {
                         <button
                           type="button"
                           disabled={
-                            pagination.page <=
-                              1 ||
+                            pagination.page <= 1 ||
                             loading
                           }
                           onClick={() =>
                             loadData(
-                              pagination.page -
-                                1
+                              pagination.page - 1
                             )
                           }
                           className="h-9 rounded-lg border px-3 text-sm disabled:opacity-50"
@@ -1513,8 +1377,7 @@ export default function RolesPermissionsPage() {
                           }
                           onClick={() =>
                             loadData(
-                              pagination.page +
-                                1
+                              pagination.page + 1
                             )
                           }
                           className="h-9 rounded-lg border px-3 text-sm disabled:opacity-50"
@@ -1530,18 +1393,29 @@ export default function RolesPermissionsPage() {
           </>
         )}
 
+        {/* INVITATIONS */}
+        {activeTab === "invitations" && (
+          <RolesPermissionsInvitations
+            onInvite={() => {
+              setError("");
+              setShowInvite(true);
+            }}
+            refreshKey={invitationRefreshKey}
+          />
+        )}
+
         {/* ROLES */}
         {activeTab === "roles" && (
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
             {loading ? (
-              Array.from({
-                length: 3,
-              }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-56 animate-pulse rounded-xl border bg-white"
-                />
-              ))
+              Array.from({ length: 3 }).map(
+                (_, index) => (
+                  <div
+                    key={index}
+                    className="h-56 animate-pulse rounded-xl border bg-white"
+                  />
+                )
+              )
             ) : roles.length === 0 ? (
               <div className="col-span-full rounded-xl border bg-white px-6 py-16 text-center">
                 <Shield className="mx-auto h-10 w-10 text-slate-300" />
@@ -1560,12 +1434,8 @@ export default function RolesPermissionsPage() {
                   Object.values(
                     role.permissions || {}
                   ).reduce(
-                    (
-                      total,
-                      actions
-                    ) =>
-                      total +
-                      actions.length,
+                    (total, actions) =>
+                      total + actions.length,
                     0
                   );
 
@@ -1597,9 +1467,7 @@ export default function RolesPermissionsPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            openEditRole(
-                              role
-                            )
+                            openEditRole(role)
                           }
                           className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                           title="Edit role"
@@ -1610,13 +1478,9 @@ export default function RolesPermissionsPage() {
                         {!role.isSystem && (
                           <button
                             type="button"
-                            disabled={
-                              saving
-                            }
+                            disabled={saving}
                             onClick={() =>
-                              deleteRole(
-                                role
-                              )
+                              deleteRole(role)
                             }
                             className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                             title="Delete role"
@@ -1634,8 +1498,7 @@ export default function RolesPermissionsPage() {
 
                     <div className="mt-5 flex items-center justify-between border-t pt-4">
                       <span className="text-xs text-slate-500">
-                        {permissionCount}{" "}
-                        permissions
+                        {permissionCount} permissions
                       </span>
 
                       <span className="max-w-[150px] truncate font-mono text-[11px] text-slate-400">
@@ -1661,7 +1524,8 @@ export default function RolesPermissionsPage() {
                 </h2>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  The invitation will be handled by the server.
+                  The invitation will be handled by the
+                  server.
                 </p>
               </div>
 
@@ -1686,17 +1550,12 @@ export default function RolesPermissionsPage() {
                 </label>
 
                 <input
-                  value={
-                    inviteForm.name
-                  }
+                  value={inviteForm.name}
                   onChange={(event) =>
-                    setInviteForm(
-                      (current) => ({
-                        ...current,
-                        name: event.target
-                          .value,
-                      })
-                    )
+                    setInviteForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
                   }
                   required
                   maxLength={100}
@@ -1715,17 +1574,12 @@ export default function RolesPermissionsPage() {
 
                   <input
                     type="email"
-                    value={
-                      inviteForm.email
-                    }
+                    value={inviteForm.email}
                     onChange={(event) =>
-                      setInviteForm(
-                        (current) => ({
-                          ...current,
-                          email: event.target
-                            .value,
-                        })
-                      )
+                      setInviteForm((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
                     }
                     required
                     maxLength={254}
@@ -1741,18 +1595,12 @@ export default function RolesPermissionsPage() {
                 </label>
 
                 <select
-                  value={
-                    inviteForm.roleId
-                  }
+                  value={inviteForm.roleId}
                   onChange={(event) =>
-                    setInviteForm(
-                      (current) => ({
-                        ...current,
-                        roleId:
-                          event.target
-                            .value,
-                      })
-                    )
+                    setInviteForm((current) => ({
+                      ...current,
+                      roleId: event.target.value,
+                    }))
                   }
                   required
                   className="h-10 w-full rounded-lg border px-3 text-sm outline-none focus:border-slate-400"
@@ -1761,20 +1609,14 @@ export default function RolesPermissionsPage() {
                     Select role
                   </option>
 
-                  {roles.map(
-                    (role) => (
-                      <option
-                        key={
-                          role._id
-                        }
-                        value={
-                          role._id
-                        }
-                      >
-                        {role.name}
-                      </option>
-                    )
-                  )}
+                  {roles.map((role) => (
+                    <option
+                      key={role._id}
+                      value={role._id}
+                    >
+                      {role.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1782,9 +1624,7 @@ export default function RolesPermissionsPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    setShowInvite(
-                      false
-                    )
+                    setShowInvite(false)
                   }
                   className="h-10 rounded-lg border px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
@@ -1823,16 +1663,15 @@ export default function RolesPermissionsPage() {
                 </h2>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Configure granular access for this administrator role.
+                  Configure granular access for this
+                  administrator role.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() =>
-                  setShowRoleModal(
-                    false
-                  )
+                  setShowRoleModal(false)
                 }
                 className="rounded-lg p-2 hover:bg-slate-100"
               >
@@ -1840,9 +1679,7 @@ export default function RolesPermissionsPage() {
               </button>
             </div>
 
-            <form
-              onSubmit={saveRole}
-            >
+            <form onSubmit={saveRole}>
               <div className="space-y-6 p-5">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
@@ -1851,18 +1688,12 @@ export default function RolesPermissionsPage() {
                     </label>
 
                     <input
-                      value={
-                        roleForm.name
-                      }
+                      value={roleForm.name}
                       onChange={(event) =>
-                        setRoleForm(
-                          (current) => ({
-                            ...current,
-                            name: event
-                              .target
-                              .value,
-                          })
-                        )
+                        setRoleForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
                       }
                       required
                       maxLength={80}
@@ -1877,19 +1708,13 @@ export default function RolesPermissionsPage() {
                     </label>
 
                     <input
-                      value={
-                        roleForm.description
-                      }
+                      value={roleForm.description}
                       onChange={(event) =>
-                        setRoleForm(
-                          (current) => ({
-                            ...current,
-                            description:
-                              event
-                                .target
-                                .value,
-                          })
-                        )
+                        setRoleForm((current) => ({
+                          ...current,
+                          description:
+                            event.target.value,
+                        }))
                       }
                       maxLength={300}
                       placeholder="Describe this role"
@@ -1905,7 +1730,8 @@ export default function RolesPermissionsPage() {
                     </h3>
 
                     <p className="mt-1 text-xs text-slate-500">
-                      These permissions are saved with the role in MongoDB.
+                      These permissions are saved with the role
+                      in MongoDB.
                     </p>
                   </div>
 
@@ -1913,8 +1739,7 @@ export default function RolesPermissionsPage() {
                     {PERMISSION_MODULES.map(
                       (module) => {
                         const selected =
-                          roleForm
-                            .permissions[
+                          roleForm.permissions[
                             module.key
                           ] || [];
 
@@ -1928,27 +1753,19 @@ export default function RolesPermissionsPage() {
 
                         return (
                           <div
-                            key={
-                              module.key
-                            }
+                            key={module.key}
                             className="p-4"
                           >
                             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div>
                                 <p className="text-sm font-semibold text-slate-900">
-                                  {
-                                    module.label
-                                  }
+                                  {module.label}
                                 </p>
 
                                 <p className="text-xs text-slate-400">
+                                  {selected.length} of{" "}
                                   {
-                                    selected.length
-                                  }{" "}
-                                  of{" "}
-                                  {
-                                    module
-                                      .actions
+                                    module.actions
                                       .length
                                   }{" "}
                                   selected
@@ -1973,9 +1790,7 @@ export default function RolesPermissionsPage() {
 
                             <div className="flex flex-wrap gap-2">
                               {module.actions.map(
-                                (
-                                  action
-                                ) => {
+                                (action) => {
                                   const selectedAction =
                                     selected.includes(
                                       action as PermissionAction
@@ -1983,9 +1798,7 @@ export default function RolesPermissionsPage() {
 
                                   return (
                                     <button
-                                      key={
-                                        action
-                                      }
+                                      key={action}
                                       type="button"
                                       onClick={() =>
                                         togglePermission(
@@ -2025,9 +1838,7 @@ export default function RolesPermissionsPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    setShowRoleModal(
-                      false
-                    )
+                    setShowRoleModal(false)
                   }
                   className="h-10 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >

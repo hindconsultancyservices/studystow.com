@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
@@ -12,27 +13,75 @@ type RouteContext = {
   }>;
 };
 
+/**
+ * Checks whether the currently logged-in user is the owner.
+ *
+ * Supports:
+ * - role = owner
+ * - role = super_admin
+ * - adminRole = owner
+ * - adminRole = super_admin
+ * - ADMIN_OWNER_EMAIL environment variable
+ */
 function isOwner(user: any) {
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+  const adminRole = String(user?.adminRole || "")
+    .trim()
+    .toLowerCase();
+
+  const email = String(user?.email || "")
+    .trim()
+    .toLowerCase();
+
+  const ownerEmail = String(
+    process.env.ADMIN_OWNER_EMAIL || ""
+  )
+    .trim()
+    .toLowerCase();
+
   return (
-    user?.role === "owner" ||
-    user?.adminRole === "owner" ||
-    user?.adminRole === "super_admin"
+    role === "owner" ||
+    role === "super_admin" ||
+    role === "super-admin" ||
+    adminRole === "owner" ||
+    adminRole === "super_admin" ||
+    adminRole === "super-admin" ||
+    (!!ownerEmail && email === ownerEmail)
   );
 }
 
+/**
+ * Protects owner / super-admin accounts
+ * from being permanently deleted.
+ */
 function isProtectedOwner(user: any) {
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+  const adminRole = String(user?.adminRole || "")
+    .trim()
+    .toLowerCase();
+
   return (
-    user?.role === "owner" ||
-    user?.adminRole === "owner" ||
-    user?.adminRole === "super_admin"
+    role === "owner" ||
+    role === "super_admin" ||
+    role === "super-admin" ||
+    adminRole === "owner" ||
+    adminRole === "super_admin" ||
+    adminRole === "super-admin"
   );
 }
 
 /**
  * DELETE
+ *
  * /api/admin/roles-permissions/[id]/remove
  *
- * Permanently removes an admin account.
+ * Permanently removes an administrator account.
  *
  * Owner only.
  */
@@ -41,6 +90,9 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
+    // --------------------------------------------------
+    // 1. CHECK SESSION
+    // --------------------------------------------------
     const session = await getServerSession(authOptions);
 
     if (!session?.user) {
@@ -55,6 +107,9 @@ export async function DELETE(
 
     const sessionUser = session.user as any;
 
+    // --------------------------------------------------
+    // 2. CHECK OWNER ACCESS
+    // --------------------------------------------------
     if (!isOwner(sessionUser)) {
       return NextResponse.json(
         {
@@ -66,6 +121,9 @@ export async function DELETE(
       );
     }
 
+    // --------------------------------------------------
+    // 3. GET ADMIN USER ID
+    // --------------------------------------------------
     const { id } = await context.params;
 
     if (!id) {
@@ -78,10 +136,13 @@ export async function DELETE(
       );
     }
 
-    /**
-     * Prevent owner from removing their own account.
-     */
-    if (String(sessionUser.id) === String(id)) {
+    // --------------------------------------------------
+    // 4. OWNER CANNOT REMOVE THEMSELVES
+    // --------------------------------------------------
+    if (
+      sessionUser.id &&
+      String(sessionUser.id) === String(id)
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -92,8 +153,14 @@ export async function DELETE(
       );
     }
 
+    // --------------------------------------------------
+    // 5. CONNECT DATABASE
+    // --------------------------------------------------
     await connectDB();
 
+    // --------------------------------------------------
+    // 6. FIND TARGET USER
+    // --------------------------------------------------
     const targetUser = await User.findById(id);
 
     if (!targetUser) {
@@ -106,28 +173,28 @@ export async function DELETE(
       );
     }
 
-    /**
-     * Owner protection.
-     *
-     * An owner must never be removable by an employee/admin.
-     * Even another owner cannot remove the protected owner
-     * through this endpoint.
-     */
+    // --------------------------------------------------
+    // 7. PROTECT OWNER / SUPER ADMIN
+    // --------------------------------------------------
     if (isProtectedOwner(targetUser)) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Owner account cannot be removed.",
+            "Owner / Super Admin account cannot be removed.",
         },
         { status: 403 }
       );
     }
 
-    /**
-     * Only admin accounts are handled here.
-     */
-    if (targetUser.role !== "admin") {
+    // --------------------------------------------------
+    // 8. ONLY ADMIN ACCOUNTS CAN BE REMOVED
+    // --------------------------------------------------
+    if (
+      String(targetUser.role || "")
+        .trim()
+        .toLowerCase() !== "admin"
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -138,10 +205,9 @@ export async function DELETE(
       );
     }
 
-    /**
-     * Optional reason from the owner.
-     * Useful for audit logs later.
-     */
+    // --------------------------------------------------
+    // 9. OPTIONAL REMOVAL REASON
+    // --------------------------------------------------
     let reason = "";
 
     try {
@@ -153,31 +219,32 @@ export async function DELETE(
           .slice(0, 500);
       }
     } catch {
-      // DELETE body is optional.
+      // DELETE request body is optional.
     }
 
-    /**
-     * Save basic information before deletion
-     * so the response/audit system can identify
-     * the removed account.
-     */
+    // --------------------------------------------------
+    // 10. SAVE DATA FOR RESPONSE / FUTURE AUDIT LOG
+    // --------------------------------------------------
     const removedAdmin = {
       id: String(targetUser._id),
       name: targetUser.name || "",
       email: targetUser.email || "",
-      role: targetUser.role,
+      role: targetUser.role || "",
       adminRole:
         (targetUser as any).adminRole || null,
       reason,
     };
 
-    /**
-     * Permanently delete the admin account.
-     */
+    // --------------------------------------------------
+    // 11. PERMANENTLY DELETE ADMIN
+    // --------------------------------------------------
     await User.deleteOne({
       _id: targetUser._id,
     });
 
+    // --------------------------------------------------
+    // 12. SUCCESS
+    // --------------------------------------------------
     return NextResponse.json({
       success: true,
       message:

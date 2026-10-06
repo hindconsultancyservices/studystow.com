@@ -1,7 +1,16 @@
+
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import {
+  FormEvent,
+  Suspense,
+  useEffect,
+  useState,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -24,7 +33,7 @@ type InvitationData = {
   expiresAt?: string;
 };
 
-export default function AcceptInvitePage() {
+function AcceptInviteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -51,7 +60,9 @@ export default function AcceptInvitePage() {
 
   useEffect(() => {
     if (!token) {
-      setError("Invalid or missing invitation link.");
+      setError(
+        "Invalid or missing invitation link."
+      );
       setLoading(false);
       return;
     }
@@ -75,7 +86,8 @@ export default function AcceptInvitePage() {
         }
       );
 
-      const data = await response.json().catch(() => null);
+      const data =
+        await response.json().catch(() => null);
 
       if (!response.ok) {
         throw new Error(
@@ -84,9 +96,14 @@ export default function AcceptInvitePage() {
         );
       }
 
-      setInvitation(data?.data || data?.invitation);
+      setInvitation(
+        data?.data || data?.invitation || null
+      );
     } catch (err) {
-      console.error("Invitation verification error:", err);
+      console.error(
+        "Invitation verification error:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -141,7 +158,8 @@ export default function AcceptInvitePage() {
         }
       );
 
-      const data = await response.json().catch(() => null);
+      const data =
+        await response.json().catch(() => null);
 
       if (!response.ok) {
         throw new Error(
@@ -157,11 +175,14 @@ export default function AcceptInvitePage() {
       setPassword("");
       setConfirmPassword("");
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         router.push("/admin/login");
       }, 1500);
     } catch (err) {
-      console.error("Accept invitation error:", err);
+      console.error(
+        "Accept invitation error:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -173,11 +194,16 @@ export default function AcceptInvitePage() {
     }
   }
 
+  // ==========================================================
+  // LOADING
+  // ==========================================================
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
         <div className="flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-slate-900" />
+
           <p className="text-sm text-slate-600">
             Verifying your invitation...
           </p>
@@ -185,6 +211,10 @@ export default function AcceptInvitePage() {
       </main>
     );
   }
+
+  // ==========================================================
+  // INVALID INVITATION
+  // ==========================================================
 
   if (error && !invitation) {
     return (
@@ -214,6 +244,10 @@ export default function AcceptInvitePage() {
       </main>
     );
   }
+
+  // ==========================================================
+  // ACCEPT INVITATION
+  // ==========================================================
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8">
@@ -264,6 +298,7 @@ export default function AcceptInvitePage() {
           {success && (
             <div className="mb-5 flex gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-700">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+
               <span>{success}</span>
             </div>
           )}
@@ -272,6 +307,7 @@ export default function AcceptInvitePage() {
             onSubmit={handleSubmit}
             className="space-y-5"
           >
+            {/* PASSWORD */}
             <div>
               <label
                 htmlFor="password"
@@ -284,24 +320,34 @@ export default function AcceptInvitePage() {
                 <input
                   id="password"
                   type={
-                    showPassword ? "text" : "password"
+                    showPassword
+                      ? "text"
+                      : "password"
                   }
                   value={password}
                   onChange={(event) =>
-                    setPassword(event.target.value)
+                    setPassword(
+                      event.target.value
+                    )
                   }
                   placeholder="Minimum 8 characters"
                   autoComplete="new-password"
-                  disabled={submitting || !!success}
+                  disabled={
+                    submitting || !!success
+                  }
                   className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-100"
                 />
 
                 <button
                   type="button"
                   onClick={() =>
-                    setShowPassword((value) => !value)
+                    setShowPassword(
+                      (value) => !value
+                    )
                   }
-                  disabled={submitting || !!success}
+                  disabled={
+                    submitting || !!success
+                  }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-900 disabled:opacity-50"
                   aria-label={
                     showPassword
@@ -318,6 +364,7 @@ export default function AcceptInvitePage() {
               </div>
             </div>
 
+            {/* CONFIRM PASSWORD */}
             <div>
               <label
                 htmlFor="confirmPassword"
@@ -342,7 +389,9 @@ export default function AcceptInvitePage() {
                   }
                   placeholder="Re-enter your password"
                   autoComplete="new-password"
-                  disabled={submitting || !!success}
+                  disabled={
+                    submitting || !!success
+                  }
                   className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-100"
                 />
 
@@ -353,7 +402,9 @@ export default function AcceptInvitePage() {
                       (value) => !value
                     )
                   }
-                  disabled={submitting || !!success}
+                  disabled={
+                    submitting || !!success
+                  }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-900 disabled:opacity-50"
                   aria-label={
                     showConfirmPassword
@@ -370,6 +421,7 @@ export default function AcceptInvitePage() {
               </div>
             </div>
 
+            {/* SUBMIT */}
             <button
               type="submit"
               disabled={
@@ -391,11 +443,36 @@ export default function AcceptInvitePage() {
           </form>
 
           <p className="mt-6 text-center text-xs leading-5 text-slate-500">
-            This invitation is secure and can only be used
-            with the invitation link sent to your email.
+            This invitation is secure and can only
+            be used with the invitation link sent
+            to your email.
           </p>
         </div>
       </div>
     </main>
+  );
+}
+
+// ============================================================
+// PAGE WRAPPER
+// ============================================================
+
+export default function AcceptInvitePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-900" />
+
+            <p className="text-sm text-slate-600">
+              Loading invitation...
+            </p>
+          </div>
+        </main>
+      }
+    >
+      <AcceptInviteContent />
+    </Suspense>
   );
 }
