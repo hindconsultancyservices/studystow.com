@@ -10,6 +10,12 @@ declare module "next-auth" {
     user: {
       id: string;
       role: string;
+      adminRole?: string | null;
+      permissions?: Record<
+        string,
+        Record<string, boolean>
+      >;
+      status?: string | null;
       name?: string | null;
       email?: string | null;
       image?: string | null;
@@ -19,6 +25,12 @@ declare module "next-auth" {
   interface User {
     id: string;
     role: string;
+    adminRole?: string | null;
+    permissions?: Record<
+      string,
+      Record<string, boolean>
+    >;
+    status?: string | null;
   }
 }
 
@@ -26,6 +38,12 @@ declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
     role?: string;
+    adminRole?: string | null;
+    permissions?: Record<
+      string,
+      Record<string, boolean>
+    >;
+    status?: string | null;
   }
 }
 
@@ -56,7 +74,10 @@ export const authOptions: NextAuthOptions = {
       },
 
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        if (
+          !credentials?.email ||
+          !credentials?.password
+        ) {
           return null;
         }
 
@@ -67,7 +88,9 @@ export const authOptions: NextAuthOptions = {
             .trim()
             .toLowerCase();
 
-          const password = String(credentials.password);
+          const password = String(
+            credentials.password
+          );
 
           const user = await User.findOne({
             email,
@@ -78,10 +101,11 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const passwordMatched = await bcrypt.compare(
-            password,
-            user.password
-          );
+          const passwordMatched =
+            await bcrypt.compare(
+              password,
+              user.password
+            );
 
           if (!passwordMatched) {
             return null;
@@ -89,12 +113,28 @@ export const authOptions: NextAuthOptions = {
 
           return {
             id: user._id.toString(),
-            name: user.name,
+
+            name: user.name || "",
+
             email: user.email,
-            role: user.role,
+
+            role: user.role || "user",
+
+            adminRole:
+              (user as any).adminRole || null,
+
+            permissions:
+              (user as any).permissions || {},
+
+            status:
+              (user as any).status || "active",
           };
         } catch (error) {
-          console.error("Authentication error:", error);
+          console.error(
+            "Authentication error:",
+            error
+          );
+
           return null;
         }
       },
@@ -105,7 +145,17 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+
         token.role = user.role;
+
+        token.adminRole =
+          user.adminRole || null;
+
+        token.permissions =
+          user.permissions || {};
+
+        token.status =
+          user.status || "active";
       }
 
       return token;
@@ -113,8 +163,20 @@ export const authOptions: NextAuthOptions = {
 
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
+        session.user.id =
+          token.id as string;
+
+        session.user.role =
+          token.role as string;
+
+        session.user.adminRole =
+          token.adminRole || null;
+
+        session.user.permissions =
+          token.permissions || {};
+
+        session.user.status =
+          token.status || "active";
       }
 
       return session;
@@ -123,7 +185,8 @@ export const authOptions: NextAuthOptions = {
 
   secret: process.env.NEXTAUTH_SECRET,
 
-  debug: process.env.NODE_ENV === "development",
+  debug:
+    process.env.NODE_ENV === "development",
 };
 
 const handler = NextAuth(authOptions);

@@ -625,7 +625,7 @@ export default async function OrderDetailsPage({
                   type="submit"
                   className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50"
                 >
-                  <XCircle className="h-4 w-4" />
+                  
                   Cancel Order
                 </button>
               </form>

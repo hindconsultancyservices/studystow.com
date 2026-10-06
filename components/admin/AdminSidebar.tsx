@@ -15,6 +15,8 @@ import {
   Star,
   Tag,
   Users,
+  ShieldCheck,
+  ClipboardList,
   X,
 } from "lucide-react";
 
@@ -81,6 +83,16 @@ const secondaryNavigation = [
     title: "Analytics",
     href: "/admin/analytics",
     icon: BarChart3,
+  },
+  {
+    title: "Roles & Permissions",
+    href: "/admin/roles-permissions",
+    icon: ShieldCheck,
+  },
+  {
+    title: "Audit Logs",
+    href: "/admin/audit-logs",
+    icon: ClipboardList,
   },
   {
     title: "Settings",

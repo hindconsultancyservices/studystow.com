@@ -12,6 +12,18 @@ export type UserRole =
   | "customer"
   | "admin";
 
+export type AdminRole =
+  | "owner"
+  | "super_admin"
+  | "manager"
+  | "staff"
+  | "custom";
+
+export type UserStatus =
+  | "active"
+  | "suspended"
+  | "removed";
+
 // ============================================================
 // USER INTERFACE
 // ============================================================
@@ -24,9 +36,27 @@ export interface IUser extends Document {
   phone?: string;
 
   role: UserRole;
+
+  // Admin RBAC
+  adminRole?: AdminRole;
+
+  permissions?: Record<
+    string,
+    Record<string, boolean>
+  >;
+
+  status: UserStatus;
+
+  // Existing compatibility
   active: boolean;
 
-  // Password reset fields
+  // Invitation / ownership
+  invitedBy?: mongoose.Types.ObjectId | null;
+
+  invitationToken?: string;
+  invitationExpires?: Date;
+
+  // Password reset
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
 
@@ -61,8 +91,6 @@ const UserSchema = new Schema<IUser>(
       maxlength: 200,
     },
 
-    // Password is hidden by default.
-    // auth.ts uses .select("+password") when login is required.
     password: {
       type: String,
       required: true,
@@ -74,6 +102,89 @@ const UserSchema = new Schema<IUser>(
       type: String,
       trim: true,
       maxlength: 15,
+    },
+
+    // --------------------------------------------------------
+    // MAIN ROLE
+    // --------------------------------------------------------
+
+    role: {
+      type: String,
+      enum: [
+        "customer",
+        "admin",
+      ],
+      default: "customer",
+      required: true,
+    },
+
+    // --------------------------------------------------------
+    // ADMIN RBAC ROLE
+    // --------------------------------------------------------
+
+    adminRole: {
+      type: String,
+      enum: [
+        "owner",
+        "super_admin",
+        "manager",
+        "staff",
+        "custom",
+      ],
+      default: undefined,
+    },
+
+    // --------------------------------------------------------
+    // GRANULAR PERMISSIONS
+    // --------------------------------------------------------
+
+    permissions: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+
+    // --------------------------------------------------------
+    // ACCOUNT STATUS
+    // --------------------------------------------------------
+
+    status: {
+      type: String,
+      enum: [
+        "active",
+        "suspended",
+        "removed",
+      ],
+      default: "active",
+      required: true,
+    },
+
+    // Existing compatibility field
+    active: {
+      type: Boolean,
+      default: true,
+      required: true,
+    },
+
+    // --------------------------------------------------------
+    // INVITATION
+    // --------------------------------------------------------
+
+    invitedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    invitationToken: {
+      type: String,
+      default: undefined,
+      select: false,
+    },
+
+    invitationExpires: {
+      type: Date,
+      default: undefined,
+      select: false,
     },
 
     // --------------------------------------------------------
@@ -91,32 +202,7 @@ const UserSchema = new Schema<IUser>(
       default: undefined,
       select: false,
     },
-
-    // --------------------------------------------------------
-    // ROLE
-    // --------------------------------------------------------
-
-    role: {
-      type: String,
-      enum: [
-        "customer",
-        "admin",
-      ],
-      default: "customer",
-      required: true,
-    },
-
-    // --------------------------------------------------------
-    // ACCOUNT STATUS
-    // --------------------------------------------------------
-
-    active: {
-      type: Boolean,
-      default: true,
-      required: true,
-    },
   },
-
   {
     timestamps: true,
   }
@@ -126,13 +212,19 @@ const UserSchema = new Schema<IUser>(
 // INDEXES
 // ============================================================
 
-// email ke liye separate index nahi lagaya gaya,
-// kyunki email field me already unique: true hai.
-// Isse duplicate schema index warning nahi aayegi.
-
 UserSchema.index({
   role: 1,
   active: 1,
+});
+
+UserSchema.index({
+  adminRole: 1,
+  status: 1,
+});
+
+UserSchema.index({
+  status: 1,
+  createdAt: -1,
 });
 
 UserSchema.index({

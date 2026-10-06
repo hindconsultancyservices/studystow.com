@@ -421,7 +421,7 @@ export default async function OrderSuccessPage({
                 {/* Buttons */}
                 <div className="space-y-3 pt-2">
                   <Link
-                    href={`/account/orders/${order._id}`}
+                    href={`/account/orders/${order.orderNumber}`}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
                     View Order

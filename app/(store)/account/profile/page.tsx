@@ -7,13 +7,10 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  LogOut,
   Mail,
   Phone,
   Save,
   ShieldCheck,
-  User,
-  UserRound,
   X,
 } from "lucide-react";
 import {
@@ -50,16 +47,23 @@ export default function ProfilePage() {
   const [user, setUser] = useState<UserData | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [savingPassword, setSavingPassword] = useState(false);
+  const [savingProfile, setSavingProfile] =
+    useState(false);
+  const [savingPassword, setSavingPassword] =
+    useState(false);
 
-  const [profileMessage, setProfileMessage] = useState("");
-  const [profileError, setProfileError] = useState("");
+  const [profileMessage, setProfileMessage] =
+    useState("");
+  const [profileError, setProfileError] =
+    useState("");
 
-  const [passwordMessage, setPasswordMessage] = useState("");
-  const [passwordError, setPasswordError] = useState("");
+  const [passwordMessage, setPasswordMessage] =
+    useState("");
+  const [passwordError, setPasswordError] =
+    useState("");
 
-  const [editingProfile, setEditingProfile] = useState(false);
+  const [editingProfile, setEditingProfile] =
+    useState(false);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -152,9 +156,8 @@ export default function ProfilePage() {
     );
   }, [user?.email, session?.user?.email]);
 
-  const initial = displayName
-    .charAt(0)
-    .toUpperCase();
+  const initial =
+    displayName.charAt(0).toUpperCase() || "C";
 
   const passwordStrength = useMemo(() => {
     const password = passwordState.next;
@@ -293,9 +296,11 @@ export default function ProfilePage() {
 
       if (updatedUser) {
         setUser(updatedUser);
+
         setName(
           updatedUser.name || cleanName
         );
+
         setPhone(
           updatedUser.phone || cleanPhone
         );
@@ -312,6 +317,7 @@ export default function ProfilePage() {
       }
 
       setEditingProfile(false);
+
       setProfileMessage(
         "Profile updated successfully."
       );
@@ -468,9 +474,10 @@ export default function ProfilePage() {
   if (status === "loading" || loading) {
     return (
       <main className="min-h-screen bg-gray-50">
-        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="animate-pulse">
             <div className="h-8 w-48 rounded bg-gray-200" />
+
             <div className="mt-3 h-4 w-64 rounded bg-gray-200" />
 
             <div className="mt-8 grid gap-6 lg:grid-cols-4">
@@ -478,6 +485,7 @@ export default function ProfilePage() {
 
               <div className="lg:col-span-3">
                 <div className="h-56 rounded-xl bg-gray-200" />
+
                 <div className="mt-4 h-56 rounded-xl bg-gray-200" />
               </div>
             </div>
@@ -515,90 +523,91 @@ export default function ProfilePage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-
-        {/* Header - SAME AS MY ORDERS */}
+        {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">
+          <Link
+            href="/account"
+            className="text-sm font-medium text-gray-600 hover:text-black"
+          >
+            ← Back to Account
+          </Link>
+
+          <h1 className="mt-4 text-2xl font-bold text-gray-900">
             My Profile
           </h1>
 
           <p className="mt-1 text-sm text-gray-500">
-            Manage your personal information and account security.
+            Manage your personal information and account
+            security.
           </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-4">
+          {/* Sidebar */}
+          <aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3 border-b px-2 pb-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
+                {initial}
+              </div>
 
-          {/* SAME SIDEBAR AS MY ORDERS */}
-<aside className="h-fit rounded-xl border bg-white p-4 shadow-sm">
-  <div className="flex items-center gap-3 border-b px-2 pb-5">
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-900 font-bold uppercase text-white">
-      {initial}
-    </div>
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-gray-900">
+                  {displayName}
+                </p>
 
-    <div className="min-w-0">
-      <p className="truncate font-semibold text-gray-900">
-        {displayName}
-      </p>
+                <p className="truncate text-xs text-gray-500">
+                  {displayEmail}
+                </p>
+              </div>
+            </div>
 
-      <p className="truncate text-xs text-gray-500">
-        {displayEmail}
-      </p>
-    </div>
-  </div>
+            <nav className="mt-4 space-y-1">
+              <Link
+                href="/account"
+                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Account
+              </Link>
 
-  <nav className="mt-4 space-y-1">
-    <Link
-      href="/account"
-      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-    >
-      Account
-    </Link>
+              <Link
+                href="/account/orders"
+                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                My Orders
+              </Link>
 
-    <Link
-      href="/account/orders"
-      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-    >
-      My Orders
-    </Link>
+              <Link
+                href="/account/profile"
+                className="block rounded-lg bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-900"
+              >
+                My Profile
+              </Link>
 
-    <Link
-      href="/account/profile"
-      className="flex items-center gap-3 rounded-lg bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-900"
-    >
-      My Profile
-    </Link>
+              <Link
+                href="/account/addresses"
+                className="block rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Addresses
+              </Link>
 
-    <Link
-      href="/account/addresses"
-      className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-gray-600 hover:bg-gray-50"
-    >
-      Addresses
-    </Link>
+              <button
+                type="button"
+                onClick={() =>
+                  signOut({
+                    callbackUrl: "/login",
+                  })
+                }
+                className="w-full rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
+              >
+                Logout
+              </button>
+            </nav>
+          </aside>
 
-    
-
-    <button
-      type="button"
-      onClick={() =>
-        signOut({
-          callbackUrl: "/login",
-        })
-      }
-      className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50"
-    >
-      <LogOut className="h-4 w-4" />
-      Logout
-    </button>
-  </nav>
-</aside>
-
-          {/* MAIN CONTENT */}
+          {/* Main Content */}
           <section className="lg:col-span-3">
-
-            {/* PERSONAL INFORMATION */}
+            {/* Personal Information */}
             <div className="rounded-xl border bg-white shadow-sm">
-
               <div className="flex flex-col gap-4 border-b bg-gray-50 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -634,8 +643,7 @@ export default function ProfilePage() {
                 className="p-5"
               >
                 <div className="grid gap-5 sm:grid-cols-2">
-
-                  {/* NAME */}
+                  {/* Name */}
                   <div>
                     <label
                       htmlFor="name"
@@ -656,7 +664,7 @@ export default function ProfilePage() {
                     />
                   </div>
 
-                  {/* EMAIL */}
+                  {/* Email */}
                   <div>
                     <label
                       htmlFor="email"
@@ -678,7 +686,7 @@ export default function ProfilePage() {
                     </div>
                   </div>
 
-                  {/* PHONE */}
+                  {/* Phone */}
                   <div>
                     <label
                       htmlFor="phone"
@@ -705,7 +713,7 @@ export default function ProfilePage() {
                     </div>
                   </div>
 
-                  {/* STATUS */}
+                  {/* Status */}
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-gray-700">
                       Account Status
@@ -727,7 +735,6 @@ export default function ProfilePage() {
                       </span>
                     </div>
                   </div>
-
                 </div>
 
                 {profileError && (
@@ -771,9 +778,8 @@ export default function ProfilePage() {
               </form>
             </div>
 
-            {/* CHANGE PASSWORD */}
+            {/* Change Password */}
             <div className="mt-6 rounded-xl border bg-white shadow-sm">
-
               <div className="border-b bg-gray-50 p-5">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                   Security
@@ -792,8 +798,7 @@ export default function ProfilePage() {
                 onSubmit={changePassword}
                 className="space-y-5 p-5"
               >
-
-                {/* CURRENT */}
+                {/* Current Password */}
                 <div>
                   <label
                     htmlFor="currentPassword"
@@ -840,7 +845,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                {/* NEW */}
+                {/* New Password */}
                 <div>
                   <label
                     htmlFor="newPassword"
@@ -955,7 +960,7 @@ export default function ProfilePage() {
                   </ul>
                 </div>
 
-                {/* CONFIRM */}
+                {/* Confirm Password */}
                 <div>
                   <label
                     htmlFor="confirmPassword"
@@ -1049,13 +1054,11 @@ export default function ProfilePage() {
                       : "Change Password"}
                   </button>
                 </div>
-
               </form>
             </div>
 
-            {/* SECURITY */}
+            {/* Account Security */}
             <div className="mt-6 rounded-xl border bg-white shadow-sm">
-
               <div className="border-b bg-gray-50 p-5">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                   Security
@@ -1071,7 +1074,6 @@ export default function ProfilePage() {
               </div>
 
               <div className="divide-y">
-
                 <div className="flex items-center justify-between gap-4 p-5">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
@@ -1117,14 +1119,12 @@ export default function ProfilePage() {
                     Protected
                   </span>
                 </div>
-
               </div>
             </div>
 
-            {/* LOGOUT */}
+            {/* Logout */}
             <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
                 <div>
                   <h2 className="font-semibold text-red-900">
                     Sign out of your account
@@ -1142,15 +1142,12 @@ export default function ProfilePage() {
                       callbackUrl: "/login",
                     })
                   }
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100"
+                  className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100"
                 >
-                  <LogOut className="h-4 w-4" />
                   Logout
                 </button>
-
               </div>
             </div>
-
           </section>
         </div>
       </div>
