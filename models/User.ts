@@ -1,3 +1,4 @@
+
 import mongoose, {
   Document,
   Model,
@@ -12,12 +13,27 @@ export type UserRole =
   | "customer"
   | "admin";
 
+/*
+ * Custom admin roles are created dynamically from the
+ * Roles collection, so this must NOT be restricted to
+ * a fixed enum.
+ *
+ * Examples:
+ * owner
+ * super_admin
+ * manager
+ * staff
+ * khadija
+ * sales_team
+ * content_manager
+ */
 export type AdminRole =
   | "owner"
   | "super_admin"
   | "manager"
   | "staff"
-  | "custom";
+  | "custom"
+  | (string & {});
 
 export type UserStatus =
   | "active"
@@ -37,9 +53,34 @@ export interface IUser extends Document {
 
   role: UserRole;
 
-  // Admin RBAC
+  // ==========================================================
+  // ADMIN RBAC
+  // ==========================================================
+
+  /*
+   * Custom role name / slug.
+   *
+   * Examples:
+   * "khadija"
+   * "sales-team"
+   * "inventory-manager"
+   */
   adminRole?: AdminRole;
 
+  /*
+   * Primary relation to the Role collection.
+   *
+   * This should be treated as the main source of truth
+   * for custom role assignment.
+   */
+  roleId?: mongoose.Types.ObjectId | null;
+
+  /*
+   * Snapshot / compatibility permissions.
+   *
+   * Keeps the user's effective permissions available
+   * without requiring a Role lookup for every request.
+   */
   permissions?: Record<
     string,
     Record<string, boolean>
@@ -108,6 +149,15 @@ const UserSchema = new Schema<IUser>(
     // MAIN ROLE
     // --------------------------------------------------------
 
+    /*
+     * Main application role.
+     *
+     * Customer:
+     * normal storefront user
+     *
+     * Admin:
+     * staff/admin account using RBAC
+     */
     role: {
       type: String,
       enum: [
@@ -122,16 +172,37 @@ const UserSchema = new Schema<IUser>(
     // ADMIN RBAC ROLE
     // --------------------------------------------------------
 
+    /*
+     * IMPORTANT:
+     * No enum here.
+     *
+     * This allows dynamically-created roles such as:
+     * "khadija"
+     * "sales-team"
+     * "content-manager"
+     * "inventory-manager"
+     */
     adminRole: {
       type: String,
-      enum: [
-        "owner",
-        "super_admin",
-        "manager",
-        "staff",
-        "custom",
-      ],
+      trim: true,
       default: undefined,
+    },
+
+    /*
+     * Main relation to Role collection.
+     *
+     * Example:
+     *
+     * User.roleId
+     *      ↓
+     * Role._id
+     *      ↓
+     * "Khadija"
+     */
+    roleId: {
+      type: Schema.Types.ObjectId,
+      ref: "Role",
+      default: null,
     },
 
     // --------------------------------------------------------
@@ -219,6 +290,11 @@ UserSchema.index({
 
 UserSchema.index({
   adminRole: 1,
+  status: 1,
+});
+
+UserSchema.index({
+  roleId: 1,
   status: 1,
 });
 
