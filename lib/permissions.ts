@@ -27,6 +27,9 @@ export const PERMISSION_MODULES = [
   "payments",
   "adminUsers",
   "settings",
+  "analytics",
+  "contact",
+  "auditLogs",
 ] as const;
 
 export type PermissionModule =
@@ -149,10 +152,25 @@ export const PERMISSION_CONFIG = [
     label: "Site Settings",
     actions: ["view", "edit"],
   },
+  {
+    module: "analytics",
+    label: "Analytics",
+    actions: ["view"],
+  },
+  {
+    module: "contact",
+    label: "Contact Messages",
+    actions: ["view", "edit", "delete"],
+  },
+  {
+    module: "auditLogs",
+    label: "Audit Logs",
+    actions: ["view"],
+  },
 ] as const;
 
 export const DEFAULT_PERMISSIONS: PermissionMap = {
-  dashboard: { view: true },
+  dashboard: { view: false },
 
   books: {
     view: false,
@@ -228,6 +246,20 @@ export const DEFAULT_PERMISSIONS: PermissionMap = {
   settings: {
     view: false,
     edit: false,
+  },
+
+  analytics: {
+    view: false,
+  },
+
+  contact: {
+    view: false,
+    edit: false,
+    delete: false,
+  },
+
+  auditLogs: {
+    view: false,
   },
 };
 
@@ -508,7 +540,16 @@ export function hasPermission(
   action: PermissionAction
 ): boolean {
   const clean = sanitizePermissions(permissions);
-  return clean[module]?.[action] === true;
+
+  if (clean[module]?.[action] !== true) {
+    return false;
+  }
+
+  const dependencies = ACTION_DEPENDENCIES[action] ?? [];
+
+  return dependencies.every(
+    (dependency) => clean[module]?.[dependency] === true
+  );
 }
 
 export function can(

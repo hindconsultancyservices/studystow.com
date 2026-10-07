@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAdminPermissions } from "@/components/admin/AdminPermissionsProvider";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -126,8 +127,13 @@ const validSectionIds = new Set<SectionId>(
 );
 
 export default function AdminSettingsPage() {
+  const { isOwner } = useAdminPermissions();
   const [activeSection, setActiveSection] =
     useState<SectionId>("general");
+
+  const visibleSections = sections.filter((section) =>
+    isOwner || !["profile", "security", "email"].includes(section.id)
+  );
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -233,6 +239,12 @@ export default function AdminSettingsPage() {
   | Read active section from URL
   |--------------------------------------------------------------------------
   */
+
+  useEffect(() => {
+    if (!isOwner && ["profile", "security", "email"].includes(activeSection)) {
+      setActiveSection("general");
+    }
+  }, [isOwner, activeSection]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -407,8 +419,7 @@ export default function AdminSettingsPage() {
       setSaved(false);
       setError("");
 
-      const payload = {
-        // General
+      const payload: Record<string, unknown> = {
         storeName: storeName.trim(),
         storeEmail: storeEmail.trim(),
         storePhone: storePhone.trim(),
@@ -417,63 +428,50 @@ export default function AdminSettingsPage() {
         timezone,
         language,
 
-        // Profile
-        adminName: adminName.trim(),
-        adminEmail: adminEmail.trim(),
-
-        // Security
-        requireSecureAuthentication,
-        sessionDuration,
-        loginProtection,
-
-        // Orders
         orderEmail,
         customerOrderEmail,
         stockAlert,
         lowStockLimit: Number(lowStockLimit) || 0,
 
-        // Checkout
         guestCheckout,
         phoneRequired,
         addressRequired,
 
-        // Payments
         codEnabled,
         razorpayEnabled,
         testMode,
 
-        // Shipping
         shippingEnabled,
         freeShippingEnabled,
-        freeShippingAmount:
-          Number(freeShippingAmount) || 0,
+        freeShippingAmount: Number(freeShippingAmount) || 0,
         shippingCharge: Number(shippingCharge) || 0,
 
-        // Tax
         gstEnabled,
         gstNumber: gstNumber.trim(),
-        defaultGstRate:
-          Number(defaultGstRate) || 0,
+        defaultGstRate: Number(defaultGstRate) || 0,
 
-        // Email
-        smtpEnabled,
-        smtpHost: smtpHost.trim(),
-        smtpPort: Number(smtpPort) || 587,
-
-        // Notifications
         newsletter,
         adminNotifications,
 
-        // SEO
         siteTitle: siteTitle.trim(),
         metaDescription: metaDescription.trim(),
         canonicalUrl: canonicalUrl.trim(),
-        googleSearchConsole:
-          googleSearchConsole.trim(),
-
-        // Maintenance
+        googleSearchConsole: googleSearchConsole.trim(),
         maintenanceMode,
       };
+
+      if (isOwner) {
+        Object.assign(payload, {
+          adminName: adminName.trim(),
+          adminEmail: adminEmail.trim(),
+          requireSecureAuthentication,
+          sessionDuration,
+          loginProtection,
+          smtpEnabled,
+          smtpHost: smtpHost.trim(),
+          smtpPort: Number(smtpPort) || 587,
+        });
+      }
 
       const response = await fetch(
         "/api/admin/settings",
@@ -752,7 +750,7 @@ export default function AdminSettingsPage() {
           </div>
 
           <div className="space-y-1">
-            {sections.map((section) => {
+            {visibleSections.map((section) => {
               const Icon = section.icon;
               const active =
                 activeSection === section.id;

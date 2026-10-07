@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
@@ -12,14 +13,8 @@ function isAdmin(session: any) {
 // GET — all coupons
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!isAdmin(session)) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("coupons", "view");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -100,14 +95,8 @@ export async function GET(request: NextRequest) {
 // POST — create coupon
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!isAdmin(session)) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("coupons", "create");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 

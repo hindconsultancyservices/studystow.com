@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
@@ -59,6 +60,13 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (session?.user && isAdmin(session.user)) {
+      const auth = await requireAdminPermission("books", "view");
+      if (!auth.ok) return auth.response;
+    }
+
     await connectDB();
 
     const { id } = await context.params;
@@ -118,6 +126,9 @@ export async function PUT(
   context: RouteContext
 ) {
   try {
+    const auth = await requireAdminPermission("books", "edit");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const { id } = await context.params;
@@ -568,25 +579,8 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    /* -----------------------------------------
-       Check logged-in admin
-    ----------------------------------------- */
-
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user) {
-      return errorResponse(
-        "You are not authorized.",
-        401
-      );
-    }
-
-    if (!isAdmin(session.user)) {
-      return errorResponse(
-        "You do not have permission to delete books.",
-        403
-      );
-    }
+    const auth = await requireAdminPermission("books", "delete");
+    if (!auth.ok) return auth.response;
 
     /* -----------------------------------------
        Get SKU

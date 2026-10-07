@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
@@ -42,31 +43,8 @@ export async function GET(
   request: NextRequest
 ) {
   try {
-    const session =
-      await getServerSession(authOptions);
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
-
-    const sessionUser =
-      session.user as any;
-
-    if (!isAdmin(sessionUser)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Forbidden",
-        },
-        { status: 403 }
-      );
-    }
+    const auth = await requireAdminPermission("adminUsers", "view");
+    if (!auth.ok) return auth.response;
 
     const { searchParams } =
       new URL(request.url);
@@ -268,6 +246,9 @@ export async function PATCH(
   request: NextRequest
 ) {
   try {
+    const auth = await requireAdminPermission("adminUsers", "edit");
+    if (!auth.ok) return auth.response;
+
     const session =
       await getServerSession(authOptions);
 

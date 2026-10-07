@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Contact from "@/models/Contact";
@@ -23,6 +24,9 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdminPermission("contact", "view");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const { id } = await context.params;
@@ -61,6 +65,9 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdminPermission("contact", "edit");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const { id } = await context.params;
@@ -123,6 +130,9 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdminPermission("contact", "delete");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const { id } = await context.params;

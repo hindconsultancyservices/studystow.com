@@ -1,8 +1,7 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 
 import connectDB from "@/lib/db";
-import { authOptions } from "@/lib/auth";
 import Book from "@/models/Book";
 
 type StockStatus =
@@ -14,12 +13,6 @@ type StockStatus =
 const DEFAULT_LOW_STOCK_LIMIT = 5;
 const MAX_LIMIT = 100;
 
-function isAdminSession(session: any) {
-  return (
-    session?.user?.role === "admin" &&
-    Boolean(session.user.id)
-  );
-}
 
 function parsePositiveInteger(
   value: string | null,
@@ -55,16 +48,10 @@ function parsePositiveInteger(
 */
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const auth = await requireAdminPermission("inventory", "view");
 
-    if (!isAdminSession(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
+    if (!auth.ok) {
+      return auth.response;
     }
 
     await connectDB();
@@ -330,18 +317,10 @@ export async function PATCH(
   request: NextRequest
 ) {
   try {
-    const session = await getServerSession(
-      authOptions
-    );
+    const auth = await requireAdminPermission("inventory", "update");
 
-    if (!isAdminSession(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
+    if (!auth.ok) {
+      return auth.response;
     }
 
     await connectDB();

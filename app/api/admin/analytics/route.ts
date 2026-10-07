@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -8,13 +9,10 @@ import Book from "@/models/Book";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const auth = await requireAdminPermission("analytics", "view");
 
-    if (!session?.user || session.user.role !== "admin") {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
+    if (!auth.ok) {
+      return auth.response;
     }
 
     await connectDB();

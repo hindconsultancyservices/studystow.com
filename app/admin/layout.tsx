@@ -5,57 +5,45 @@ import { usePathname } from "next/navigation";
 
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
+import AdminPageGuard from "@/components/admin/AdminPageGuard";
+import { AdminPermissionsProvider } from "@/components/admin/AdminPermissionsProvider";
 
 interface AdminLayoutProps {
   children: ReactNode;
 }
 
-export default function AdminLayout({
-  children,
-}: AdminLayoutProps) {
+export default function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
-
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  /*
-   * Login aur Forgot Password pages par
-   * sidebar/header nahi dikhana hai.
-   */
-  if (
-    pathname === "/admin/login" ||
-    pathname === "/admin/forgot-password"
-  ) {
+  const publicAdminPages = new Set([
+    "/admin/login",
+    "/admin/forgot-password",
+    "/admin/reset-password",
+  ]);
+
+  if (publicAdminPages.has(pathname)) {
     return <>{children}</>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      {/* ================================
-          ADMIN SIDEBAR
-          ================================ */}
-      <AdminSidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      {/* ================================
-          MAIN CONTENT AREA
-          ================================ */}
-      <div className="lg:pl-64">
-        {/* ================================
-            ADMIN HEADER
-            ================================ */}
-        <AdminHeader
-          onMenuClick={() => setSidebarOpen(true)}
+    <AdminPermissionsProvider>
+      <div className="min-h-screen bg-slate-100">
+        <AdminSidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
         />
 
-        {/* ================================
-            PAGE CONTENT
-            ================================ */}
-        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
+        <div className="lg:pl-64">
+          <AdminHeader
+            onMenuClick={() => setSidebarOpen(true)}
+          />
+
+          <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8">
+            <AdminPageGuard>{children}</AdminPageGuard>
+          </main>
+        </div>
       </div>
-    </div>
+    </AdminPermissionsProvider>
   );
 }

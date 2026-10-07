@@ -1,10 +1,10 @@
+import { getCurrentAdminContext } from "@/lib/admin-authorization";
+import { can } from "@/lib/permissions";
 
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
 
-import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import Order from "@/models/Order";
 
@@ -38,50 +38,6 @@ const updateOrderSchema = z.object({
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-type AdminAuthResult =
-  | {
-      authorized: true;
-      response?: undefined;
-    }
-  | {
-      authorized: false;
-      response: NextResponse;
-    };
-
-async function requireAdmin(): Promise<AdminAuthResult> {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        {
-          success: false,
-          message: "Authentication required",
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  if (session.user.role !== "admin") {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        {
-          success: false,
-          message: "Admin access required",
-        },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    authorized: true,
-  };
-}
 
 function getOrderFilter(id: string) {
   const value = decodeURIComponent(id).trim();
@@ -120,11 +76,8 @@ export async function GET(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const auth = await requireAdmin();
-
-    if (!auth.authorized) {
-      return auth.response;
-    }
+    const auth = await requireAdminPermission("orders", "view");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -189,11 +142,8 @@ export async function PATCH(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const auth = await requireAdmin();
-
-    if (!auth.authorized) {
-      return auth.response;
-    }
+    const current = await getCurrentAdminContext();
+    if (!current.ok) return current.response;
 
     await connectDB();
 
@@ -224,6 +174,53 @@ export async function PATCH(
         },
         { status: 400 }
       );
+    }
+
+    const required: Array<{
+      module: "orders";
+      action: "update" | "cancel" | "refund";
+    }> = [];
+
+    if (parsed.data.orderStatus !== undefined) {
+      required.push({
+        module: "orders",
+        action:
+          parsed.data.orderStatus === "cancelled"
+            ? "cancel"
+            : "update",
+      });
+    }
+
+    if (parsed.data.paymentStatus !== undefined) {
+      required.push({
+        module: "orders",
+        action:
+          parsed.data.paymentStatus === "refunded"
+            ? "refund"
+            : "update",
+      });
+    }
+
+    if (parsed.data.notes !== undefined && required.length === 0) {
+      required.push({ module: "orders", action: "update" });
+    }
+
+    if (!current.context.actor.isOwner) {
+      const denied = required.some(
+        ({ module, action }) => !can(current.context.actor, module, action)
+      );
+
+      if (denied) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "PERMISSION_DENIED",
+            message: "You do not have permission to perform this order action.",
+            required,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const updates: Record<string, unknown> = {};

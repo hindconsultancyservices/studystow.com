@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
@@ -90,36 +91,10 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    // --------------------------------------------------
-    // 1. CHECK SESSION
-    // --------------------------------------------------
-    const session = await getServerSession(authOptions);
+    const auth = await requireAdminPermission("adminUsers", "remove");
+    if (!auth.ok) return auth.response;
 
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
-        { status: 401 }
-      );
-    }
-
-    const sessionUser = session.user as any;
-
-    // --------------------------------------------------
-    // 2. CHECK OWNER ACCESS
-    // --------------------------------------------------
-    if (!isOwner(sessionUser)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Only the owner can remove admin users.",
-        },
-        { status: 403 }
-      );
-    }
+    const sessionUser = auth.context.actor;
 
     // --------------------------------------------------
     // 3. GET ADMIN USER ID

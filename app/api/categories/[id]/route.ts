@@ -1,3 +1,6 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
+import { authOptions } from "@/lib/auth";
+import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import mongoose from "mongoose";
@@ -70,6 +73,15 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (session?.user) {
+      const role = String(session.user.role || "").trim().toLowerCase();
+      if (role === "admin" || role === "owner" || role === "super_admin") {
+        const auth = await requireAdminPermission("categories", "view");
+        if (!auth.ok) return auth.response;
+      }
+    }
+
     await connectDB();
 
     const { id } = await context.params;
@@ -126,6 +138,9 @@ export async function PUT(
   context: RouteContext
 ) {
   try {
+    const auth = await requireAdminPermission("categories", "edit");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const { id } = await context.params;
@@ -326,6 +341,9 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
+    const auth = await requireAdminPermission("categories", "delete");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const { id } = await context.params;

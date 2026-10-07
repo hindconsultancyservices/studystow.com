@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAdminPermissions } from "@/components/admin/AdminPermissionsProvider";
 
 type Book = {
   _id: string;
@@ -355,6 +356,8 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 export default function AdminDashboardPage() {
+  const { canView } = useAdminPermissions();
+
   const [data, setData] = useState<DashboardData>({
     books: [],
     customers: [],
@@ -394,45 +397,42 @@ export default function AdminDashboardPage() {
           customersResponse,
           reviewsResponse,
         ] = await Promise.all([
-          fetchJson<BooksResponse>(
-            "/api/books?limit=1000"
-          ),
+          canView("books")
+            ? fetchJson<BooksResponse>("/api/books?limit=1000")
+            : Promise.resolve(null),
 
-          fetchJson<CustomersResponse>(
-            "/api/admin/customers?limit=1000"
-          ),
+          canView("customers")
+            ? fetchJson<CustomersResponse>("/api/admin/customers?limit=1000")
+            : Promise.resolve(null),
 
-          fetchJson<ReviewsResponse>(
-            "/api/reviews?limit=10&page=1"
-          ),
+          canView("reviews")
+            ? fetchJson<ReviewsResponse>("/api/reviews?limit=10&page=1")
+            : Promise.resolve(null),
         ]);
 
         const books = Array.isArray(
-          booksResponse.data
+          booksResponse?.data
         )
           ? booksResponse.data
           : [];
 
         const customers = Array.isArray(
-          customersResponse.data
+          customersResponse?.data
         )
           ? customersResponse.data
           : [];
 
         const customerStats: CustomerStats = {
           totalCustomers: Number(
-            customersResponse.stats
-              ?.totalCustomers ?? 0
+            customersResponse?.stats?.totalCustomers ?? 0
           ),
 
           activeCustomers: Number(
-            customersResponse.stats
-              ?.activeCustomers ?? 0
+            customersResponse?.stats?.activeCustomers ?? 0
           ),
 
           inactiveCustomers: Number(
-            customersResponse.stats
-              ?.inactiveCustomers ?? 0
+            customersResponse?.stats?.inactiveCustomers ?? 0
           ),
 
           newCustomers: Number(
@@ -442,32 +442,32 @@ export default function AdminDashboardPage() {
         };
 
         const reviews = Array.isArray(
-          reviewsResponse.data
+          reviewsResponse?.data
         )
           ? reviewsResponse.data
           : [];
 
         const reviewStats = {
           total: Number(
-            reviewsResponse.stats?.total ??
-              reviewsResponse.pagination?.total ??
+            reviewsResponse?.stats?.total ??
+              reviewsResponse?.pagination?.total ??
               0
           ),
 
           pending: Number(
-            reviewsResponse.stats?.pending ?? 0
+            reviewsResponse?.stats?.pending ?? 0
           ),
 
           approved: Number(
-            reviewsResponse.stats?.approved ?? 0
+            reviewsResponse?.stats?.approved ?? 0
           ),
 
           rejected: Number(
-            reviewsResponse.stats?.rejected ?? 0
+            reviewsResponse?.stats?.rejected ?? 0
           ),
 
           averageRating: Number(
-            reviewsResponse.stats?.averageRating ??
+            reviewsResponse?.stats?.averageRating ??
               0
           ),
         };
@@ -484,11 +484,10 @@ export default function AdminDashboardPage() {
         /*
          * Load contacts independently.
          */
-        try {
-          const contactsResponse =
-            await fetchJson<ContactsResponse>(
-              "/api/contact?limit=5"
-            );
+        if (canView("contact")) {
+          try {
+            const contactsResponse =
+              await fetchJson<ContactsResponse>("/api/contact?limit=5");
 
           const contacts = Array.isArray(
             contactsResponse.data
@@ -552,11 +551,11 @@ export default function AdminDashboardPage() {
             contacts,
             contactStats,
           }));
-        } catch (contactErr) {
-          console.error(
-            "Contact dashboard error:",
-            contactErr
-          );
+          } catch (contactErr) {
+            console.error(
+              "Contact dashboard error:",
+              contactErr
+            );
 
           setContactError(
             contactErr instanceof Error
@@ -564,6 +563,13 @@ export default function AdminDashboardPage() {
               : "Unable to load contact messages."
           );
 
+            setData((current) => ({
+              ...current,
+              contacts: [],
+              contactStats: EMPTY_CONTACT_STATS,
+            }));
+          }
+        } else {
           setData((current) => ({
             ...current,
             contacts: [],
@@ -586,7 +592,7 @@ export default function AdminDashboardPage() {
         setRefreshing(false);
       }
     },
-    []
+    [canView]
   );
 
   useEffect(() => {
@@ -768,6 +774,7 @@ export default function AdminDashboardPage() {
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {/* Books */}
         <Link
+          data-rbac-module="books"
           href="/admin/books"
           className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
         >
@@ -798,6 +805,7 @@ export default function AdminDashboardPage() {
 
         {/* Customers */}
         <Link
+          data-rbac-module="customers"
           href="/admin/customers"
           className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
         >
@@ -828,6 +836,7 @@ export default function AdminDashboardPage() {
 
         {/* Reviews */}
         <Link
+          data-rbac-module="reviews"
           href="/admin/reviews"
           className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
         >
@@ -858,6 +867,7 @@ export default function AdminDashboardPage() {
 
         {/* Contact Messages */}
         <Link
+          data-rbac-module="contact"
           href="/admin/contact"
           className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
         >
@@ -893,7 +903,7 @@ export default function AdminDashboardPage() {
         </Link>
 
         {/* Rating */}
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div data-rbac-module="reviews" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-slate-500">
@@ -925,7 +935,7 @@ export default function AdminDashboardPage() {
       </section>
 
       {/* Inventory Summary */}
-      <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section data-rbac-module="inventory" className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link
           href="/admin/inventory"
           className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
@@ -1091,7 +1101,7 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Recent Customers */}
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div data-rbac-module="customers" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 p-5">
             <div>
               <h2 className="font-semibold text-slate-900">
@@ -1176,7 +1186,7 @@ export default function AdminDashboardPage() {
       </section>
 
       {/* Recent Contact Messages */}
-      <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <section data-rbac-module="contact" className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -1331,7 +1341,7 @@ export default function AdminDashboardPage() {
       </section>
 
       {/* Recent Reviews */}
-      <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <section data-rbac-module="reviews" className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-semibold text-slate-900">
@@ -1476,6 +1486,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
+            data-rbac-module="orders"
             href="/admin/orders"
             className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
           >
@@ -1493,6 +1504,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
+            data-rbac-module="inventory"
             href="/admin/inventory"
             className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
           >
@@ -1510,6 +1522,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
+            data-rbac-module="reviews"
             href="/admin/reviews"
             className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
           >
@@ -1527,6 +1540,7 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
+            data-rbac-module="contact"
             href="/admin/contact"
             className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow"
           >

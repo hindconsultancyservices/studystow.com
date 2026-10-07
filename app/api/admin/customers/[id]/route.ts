@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -40,31 +41,13 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    const auth = await requireAdminPermission("customers", "view");
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     void request;
-
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
-        { status: 401 }
-      );
-    }
-
-    const currentUser = session.user as any;
-
-    if (!isAdmin(currentUser)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Admin access required.",
-        },
-        { status: 403 }
-      );
-    }
 
     await connectDB();
 

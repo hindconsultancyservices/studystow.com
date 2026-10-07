@@ -1,3 +1,6 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
+import { authOptions } from "@/lib/auth";
+import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -31,6 +34,13 @@ const categorySchema = z.object({
 // /api/categories?featured=true
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (session?.user && ["admin", "owner", "super_admin", "super-admin"].includes(String(session.user.role || "").trim().toLowerCase())) {
+      const auth = await requireAdminPermission("categories", "view");
+      if (!auth.ok) return auth.response;
+    }
+
     await connectDB();
 
     const { searchParams } = new URL(request.url);
@@ -103,6 +113,9 @@ export async function GET(request: NextRequest) {
 // POST /api/categories
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdminPermission("categories", "create");
+    if (!auth.ok) return auth.response;
+
     await connectDB();
 
     const body = await request.json();

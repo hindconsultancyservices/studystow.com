@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
+import { useAdminPermissions } from "@/components/admin/AdminPermissionsProvider";
 
 type RolesPermissionsLayoutProps = {
   children: ReactNode;
@@ -28,6 +29,7 @@ export default function RolesPermissionsLayout({
   children,
 }: RolesPermissionsLayoutProps) {
   const pathname = usePathname();
+  const { isOwner, can } = useAdminPermissions();
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -49,7 +51,9 @@ export default function RolesPermissionsLayout({
 
         {/* Shared Navigation */}
         <div className="flex overflow-x-auto border-b border-slate-200">
-          {tabs.map((tab) => {
+          {tabs.filter((tab) =>
+            tab.href.endsWith("/roles") ? isOwner : can("adminUsers", "view")
+          ).map((tab) => {
             const isActive =
               pathname === tab.href ||
               pathname.startsWith(`${tab.href}/`);

@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import mongoose from "mongoose";
@@ -5,16 +6,6 @@ import mongoose from "mongoose";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import Coupon from "@/models/Coupon";
-
-async function checkAdmin() {
-  const session = await getServerSession(authOptions);
-
-  if (session?.user?.role !== "admin") {
-    return null;
-  }
-
-  return session; // Return the session if the user is an admin
-}
 
 function validId(id: string) {
   return mongoose.Types.ObjectId.isValid(id);
@@ -51,14 +42,8 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await checkAdmin();
-
-    if (!session) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("coupons", "view");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -112,14 +97,8 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await checkAdmin();
-
-    if (!session) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("coupons", "edit");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -432,14 +411,8 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await checkAdmin();
-
-    if (!session) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("coupons", "delete");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 

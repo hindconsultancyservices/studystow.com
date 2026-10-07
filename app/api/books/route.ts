@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -149,7 +150,24 @@ export async function GET(request: NextRequest) {
     const session =
       await getServerSession(authOptions);
 
-    const adminUser = isAdmin(session);
+    const sessionRole = String(session?.user?.role || "").trim().toLowerCase();
+    const sessionAdminRole = String(session?.user?.adminRole || "").trim().toLowerCase();
+    const adminUser = [
+      "admin",
+      "owner",
+      "super_admin",
+      "super-admin",
+    ].includes(sessionRole) || [
+      "admin",
+      "owner",
+      "super_admin",
+      "super-admin",
+    ].includes(sessionAdminRole);
+
+    if (adminUser) {
+      const auth = await requireAdminPermission("books", "view");
+      if (!auth.ok) return auth.response;
+    }
 
     const { searchParams } =
       new URL(request.url);
@@ -332,15 +350,8 @@ export async function POST(
   request: NextRequest,
 ) {
   try {
-    const session =
-      await getServerSession(authOptions);
-
-    if (!isAdmin(session)) {
-      return errorResponse(
-        "Unauthorized",
-        401,
-      );
-    }
+    const auth = await requireAdminPermission("books", "create");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 

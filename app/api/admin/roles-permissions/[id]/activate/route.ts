@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -40,30 +41,10 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const auth = await requireAdminPermission("adminUsers", "suspend");
+    if (!auth.ok) return auth.response;
 
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
-        { status: 401 }
-      );
-    }
-
-    const sessionUser = session.user as any;
-
-    if (!isOwner(sessionUser)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Only the owner can activate admin users.",
-        },
-        { status: 403 }
-      );
-    }
+    const sessionUser = auth.context.actor;
 
     const { id } = await context.params;
 

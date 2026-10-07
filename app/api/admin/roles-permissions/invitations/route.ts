@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -289,32 +290,8 @@ function buildSearchOnlyQuery(search: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "You are not authorized.",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
-
-    if (!isOwner(session.user)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "You do not have permission to view invitations.",
-        },
-        {
-          status: 403,
-        }
-      );
-    }
+    const auth = await requireAdminPermission("adminUsers", "view");
+    if (!auth.ok) return auth.response;
 
     await dbConnect();
 

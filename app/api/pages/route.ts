@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
@@ -7,16 +8,6 @@ import Page, {
   type PageStatus,
   type PageType,
 } from "@/models/Page";
-
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-
-  if (session?.user?.role !== "admin") {
-    return null;
-  }
-
-  return session;
-}
 
 const validTypes: PageType[] = [
   "homepage",
@@ -48,17 +39,8 @@ function normalizeSlug(slug: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireAdmin();
-
-    if (!session) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("pages", "view");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -218,17 +200,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireAdmin();
-
-    if (!session) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
+    const auth = await requireAdminPermission("pages", "create");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -347,11 +320,7 @@ export async function POST(request: NextRequest) {
        AUTHOR
        ===================================================== */
 
-    const authorId =
-      session.user?.id ||
-      (session.user as {
-        _id?: string;
-      })?._id;
+    const authorId = auth.context.actor.id;
 
     /* =====================================================
        CREATE

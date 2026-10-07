@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { getServerSession } from "next-auth";
@@ -15,16 +16,6 @@ type RouteContext = {
   }>;
 };
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-
-  if (session?.user?.role !== "admin") {
-    return null;
-  }
-
-  return session;
-}
-
 function validateId(id: string) {
   return mongoose.Types.ObjectId.isValid(id);
 }
@@ -37,17 +28,9 @@ export async function GET(
   context: RouteContext
 ) {
   try {
-    const session = await requireAdmin();
+    const auth = await requireAdminPermission("pages", "view");
 
-    if (!session) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -102,17 +85,9 @@ export async function PUT(
   context: RouteContext
 ) {
   try {
-    const session = await requireAdmin();
+    const auth = await requireAdminPermission("pages", "edit");
 
-    if (!session) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -342,17 +317,9 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    const session = await requireAdmin();
+    const auth = await requireAdminPermission("pages", "delete");
 
-    if (!session) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 

@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import mongoose from "mongoose";
@@ -61,28 +62,8 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "You are not authorized.",
-        },
-        { status: 401 }
-      );
-    }
-
-    if (!isOwner(session.user)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Only the owner can delete administrator invitations.",
-        },
-        { status: 403 }
-      );
-    }
+    const auth = await requireAdminPermission("adminUsers", "remove");
+    if (!auth.ok) return auth.response;
 
     const { id } = await context.params;
 

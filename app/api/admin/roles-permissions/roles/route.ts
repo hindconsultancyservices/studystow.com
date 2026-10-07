@@ -1,3 +1,4 @@
+import { requireAdminPermission, requireOwner } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 

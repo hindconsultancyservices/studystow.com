@@ -1,9 +1,16 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAdminPermission("customers", "view");
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     await connectDB();
 
     const { searchParams } = new URL(request.url);

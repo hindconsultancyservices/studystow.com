@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import mongoose from "mongoose";
@@ -143,15 +144,8 @@ export async function GET(request: NextRequest) {
     /*
      * ADMIN REVIEW LIST
      */
-    if (!isAdmin(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Book ID is required.",
-        },
-        { status: 400 }
-      );
-    }
+    const auth = await requireAdminPermission("reviews", "view");
+    if (!auth.ok) return auth.response;
 
     const search =
       searchParams.get("search")?.trim() || "";

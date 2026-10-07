@@ -272,6 +272,24 @@ const PERMISSION_MODULES: readonly PermissionModule[] =
         "edit",
       ],
     },
+    {
+      key: "analytics",
+      label: "Analytics",
+      description: "View business and operational analytics.",
+      actions: ["view"],
+    },
+    {
+      key: "contact",
+      label: "Contact Messages",
+      description: "View and manage website enquiries.",
+      actions: ["view", "edit", "delete"],
+    },
+    {
+      key: "auditLogs",
+      label: "Audit Logs",
+      description: "View administrator activity history.",
+      actions: ["view"],
+    },
   ];
 
 const ACTION_LABELS: Record<

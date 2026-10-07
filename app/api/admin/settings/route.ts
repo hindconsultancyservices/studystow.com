@@ -1,9 +1,9 @@
+import { stripOwnerOnlySettings, OWNER_ONLY_SETTING_KEYS } from "@/lib/permissions";
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
 import mongoose from "mongoose";
 
-import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import StoreSettings from "@/models/StoreSettings";
 
@@ -199,47 +199,6 @@ const settingsSchema = z.object({
 
 /*
 |--------------------------------------------------------------------------
-| Admin Authentication
-|--------------------------------------------------------------------------
-*/
-
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user) {
-    return {
-      authorized: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  if (session.user.role !== "admin") {
-    return {
-      authorized: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          message: "Admin access required",
-        },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    authorized: true as const,
-    session,
-  };
-}
-
-/*
-|--------------------------------------------------------------------------
 | Default Settings
 |--------------------------------------------------------------------------
 */
@@ -307,11 +266,8 @@ const defaultSettings = {
 
 export async function GET() {
   try {
-    const auth = await requireAdmin();
-
-    if (!auth.authorized) {
-      return auth.response;
-    }
+    const auth = await requireAdminPermission("settings", "view");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
@@ -326,9 +282,14 @@ export async function GET() {
       settings = created.toObject();
     }
 
+    const safeSettings = stripOwnerOnlySettings(
+      auth.context.actor,
+      settings as Record<string, unknown>
+    );
+
     return NextResponse.json({
       success: true,
-      data: settings,
+      data: safeSettings,
     });
   } catch (error) {
     console.error("GET /api/admin/settings error:", error);
@@ -351,17 +312,50 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const auth = await requireAdmin();
-
-    if (!auth.authorized) {
-      return auth.response;
-    }
+    const auth = await requireAdminPermission("settings", "edit");
+    if (!auth.ok) return auth.response;
 
     await connectDB();
 
     const body = await request.json();
 
-    const parsed = settingsSchema.safeParse(body);
+    if (!auth.context.actor.isOwner) {
+      const requested = body && typeof body === "object" ? body as Record<string, unknown> : {};
+      const attemptedOwnerOnly = OWNER_ONLY_SETTING_KEYS.filter((key) =>
+        Object.prototype.hasOwnProperty.call(requested, key)
+      );
+
+      if (attemptedOwnerOnly.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "OWNER_ONLY_SETTING",
+            message: "One or more requested settings are owner-only.",
+            keys: attemptedOwnerOnly,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    /*
+     * Always update the existing settings document. We merge the incoming
+     * values with the stored/default document before schema validation so
+     * staff do not need to send owner-only fields that are intentionally
+     * hidden from them.
+     */
+    let settings = await StoreSettings.findOne();
+
+    const existingValues = settings
+      ? (settings.toObject() as Record<string, unknown>)
+      : (defaultSettings as Record<string, unknown>);
+
+    const mergedInput = {
+      ...existingValues,
+      ...(body && typeof body === "object" ? body : {}),
+    };
+
+    const parsed = settingsSchema.safeParse(mergedInput);
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -376,17 +370,8 @@ export async function PUT(request: NextRequest) {
 
     const data = parsed.data;
 
-    /*
-     * Always update the existing settings document.
-     * This prevents creating multiple settings documents.
-     */
-    let settings = await StoreSettings.findOne();
-
     if (!settings) {
-      settings = new StoreSettings({
-        ...defaultSettings,
-        ...data,
-      });
+      settings = new StoreSettings(data);
     } else {
       Object.assign(settings, data);
     }
@@ -396,7 +381,10 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Settings saved successfully",
-      data: settings.toObject(),
+      data: stripOwnerOnlySettings(
+        auth.context.actor,
+        settings.toObject() as Record<string, unknown>
+      ),
     });
   } catch (error) {
     console.error("PUT /api/admin/settings error:", error);

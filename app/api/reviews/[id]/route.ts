@@ -1,3 +1,4 @@
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import mongoose from "mongoose";
@@ -33,19 +34,8 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!isAdmin(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
+    const auth = await requireAdminPermission("reviews", "edit");
+    if (!auth.ok) return auth.response;
 
     const { id } = await context.params;
 
@@ -150,19 +140,8 @@ export async function GET(
   context: RouteContext
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!isAdmin(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
+    const auth = await requireAdminPermission("reviews", "view");
+    if (!auth.ok) return auth.response;
 
     const { id } = await context.params;
 
