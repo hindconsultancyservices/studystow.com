@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getServerSession } from "next-auth";
@@ -82,8 +81,7 @@ function normalizePermissions(value: any) {
   for (const [moduleKey, actions] of Object.entries(value)) {
     if (Array.isArray(actions)) {
       result[moduleKey] = actions.filter(
-        (action): action is string =>
-          typeof action === "string"
+        (action): action is string => typeof action === "string",
       );
     }
   }
@@ -138,7 +136,8 @@ function createInvitationToken() {
     .digest("hex");
 
   const expiresAt = new Date(
-    Date.now() + 1000 * 60 * 60 * 24 * 7
+    Date.now() +
+      1000 * 60 * 60 * 24 * 7,
   );
 
   return {
@@ -154,18 +153,21 @@ function createInvitationToken() {
 
 function buildInviteUrl(rawToken: string) {
   const appUrl =
-    process.env.NEXTAUTH_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim();
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXTAUTH_URL?.trim();
 
   if (!appUrl) {
     throw new Error(
-      "NEXTAUTH_URL or NEXT_PUBLIC_APP_URL is missing."
+      "NEXT_PUBLIC_APP_URL or NEXTAUTH_URL is missing.",
     );
   }
 
+  const normalizedAppUrl = appUrl.replace(/\/+$/, "");
+
   return (
-    `${appUrl.replace(/\/$/, "")}` +
-    `/accept-invites?token=${encodeURIComponent(rawToken)}`
+    `${normalizedAppUrl}/accept-invites?token=${encodeURIComponent(
+      rawToken,
+    )}`
   );
 }
 
@@ -180,6 +182,26 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// ============================================================
+// RESEND SENDER
+// ============================================================
+
+function getResendFrom() {
+  const from =
+    process.env.RESEND_FROM?.trim() ||
+    process.env.RESEND_FROM_EMAIL?.trim() ||
+    process.env.EMAIL_FROM?.trim() ||
+    "StudyStow <no-reply@studystow.com>";
+
+  if (from.toLowerCase().includes("@resend.dev")) {
+    throw new Error(
+      "RESEND_FROM is using Resend's testing sender. Use a verified StudyStow sender such as StudyStow <no-reply@studystow.com>.",
+    );
+  }
+
+  return from;
 }
 
 // ============================================================
@@ -204,20 +226,11 @@ async function sendAdminInvitationEmailViaResend({
 
   if (!resendApiKey) {
     throw new Error(
-      "RESEND_API_KEY is missing. Please add your Resend API key to .env.local."
+      "RESEND_API_KEY is missing. Please configure the Resend API key.",
     );
   }
 
-  // Priority:
-  // 1. RESEND_FROM
-  // 2. RESEND_FROM_EMAIL
-  // 3. EMAIL_FROM
-  // 4. Resend testing sender
-  const from =
-    process.env.RESEND_FROM?.trim() ||
-    process.env.RESEND_FROM_EMAIL?.trim() ||
-    process.env.EMAIL_FROM?.trim() ||
-    "onboarding@resend.dev";
+  const from = getResendFrom();
 
   const formattedExpiry =
     new Intl.DateTimeFormat("en-IN", {
@@ -242,7 +255,6 @@ async function sendAdminInvitationEmailViaResend({
   />
   <title>StudyStow Admin Invitation</title>
 </head>
-
 <body
   style="
     margin:0;
@@ -441,7 +453,7 @@ StudyStow Team
         html,
         text,
       }),
-    }
+    },
   );
 
   const responseData = await response
@@ -451,7 +463,7 @@ StudyStow Team
   if (!response.ok) {
     console.error(
       "Resend invitation error:",
-      responseData
+      responseData,
     );
 
     const resendMessage =
@@ -460,7 +472,7 @@ StudyStow Team
       "Resend rejected the email.";
 
     throw new Error(
-      `Resend email failed: ${resendMessage}`
+      `Resend email failed: ${resendMessage}`,
     );
   }
 
@@ -472,7 +484,7 @@ StudyStow Team
 // ============================================================
 
 export async function POST(
-  request: NextRequest
+  request: NextRequest,
 ) {
   try {
     // --------------------------------------------------------
@@ -490,7 +502,7 @@ export async function POST(
         },
         {
           status: 401,
-        }
+        },
       );
     }
 
@@ -507,7 +519,7 @@ export async function POST(
         },
         {
           status: 403,
-        }
+        },
       );
     }
 
@@ -519,17 +531,17 @@ export async function POST(
       await request.json().catch(() => null);
 
     const name = String(
-      body?.name || ""
+      body?.name || "",
     ).trim();
 
     const email = String(
-      body?.email || ""
+      body?.email || "",
     )
       .trim()
       .toLowerCase();
 
     const roleId = String(
-      body?.roleId || ""
+      body?.roleId || "",
     ).trim();
 
     // --------------------------------------------------------
@@ -545,7 +557,7 @@ export async function POST(
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -555,7 +567,7 @@ export async function POST(
 
     if (
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-        email
+        email,
       )
     ) {
       return NextResponse.json(
@@ -566,7 +578,7 @@ export async function POST(
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -592,7 +604,7 @@ export async function POST(
         },
         {
           status: 404,
-        }
+        },
       );
     }
 
@@ -609,7 +621,7 @@ export async function POST(
         },
         {
           status: 403,
-        }
+        },
       );
     }
 
@@ -626,13 +638,13 @@ export async function POST(
 
     if (existingUser) {
       const currentRole = String(
-        (existingUser as any).role || ""
+        (existingUser as any).role || "",
       )
         .trim()
         .toLowerCase();
 
       const currentAdminRole = String(
-        (existingUser as any).adminRole || ""
+        (existingUser as any).adminRole || "",
       )
         .trim()
         .toLowerCase();
@@ -657,7 +669,7 @@ export async function POST(
           },
           {
             status: 409,
-          }
+          },
         );
       }
 
@@ -667,7 +679,7 @@ export async function POST(
 
       const permissions =
         normalizePermissions(
-          (role as any).permissions
+          (role as any).permissions,
         );
 
       // ------------------------------------------------------
@@ -677,28 +689,27 @@ export async function POST(
       (existingUser as any).name =
         name || (existingUser as any).name;
 
-      (existingUser as any).role =
-        "admin";
+      (existingUser as any).role = "admin";
 
       (existingUser as any).adminRole =
         String(
-          (role as any).slug || "custom"
+          (role as any).slug || "custom",
         );
+
+      // Keep the custom role relation when the User model supports it.
+      (existingUser as any).roleId =
+        (role as any)._id;
 
       (existingUser as any).permissions =
         permissions;
 
-      (existingUser as any).status =
-        "active";
-
-      (existingUser as any).active =
-        true;
+      (existingUser as any).status = "active";
+      (existingUser as any).active = true;
 
       (existingUser as any).invitedBy =
         (session.user as any).id || null;
 
-      (existingUser as any).invitationExpires =
-        null;
+      (existingUser as any).invitationExpires = null;
 
       await existingUser.save();
 
@@ -716,8 +727,9 @@ export async function POST(
         {
           $set: {
             status: "accepted",
+            acceptedAt: new Date(),
           },
-        }
+        },
       );
 
       return NextResponse.json(
@@ -732,11 +744,15 @@ export async function POST(
             role: "admin",
             adminRole:
               (existingUser as any).adminRole,
+            roleId: String(
+              (existingUser as any).roleId ||
+                (role as any)._id,
+            ),
           },
         },
         {
           status: 200,
-        }
+        },
       );
     }
 
@@ -787,9 +803,18 @@ export async function POST(
       existingInvitation.role = role._id;
       existingInvitation.invitedBy =
         (session.user as any).id;
+
       existingInvitation.tokenHash = tokenHash;
       existingInvitation.expiresAt = expiresAt;
       existingInvitation.status = "pending";
+
+      if ("acceptedAt" in existingInvitation) {
+        existingInvitation.acceptedAt = null;
+      }
+
+      if ("passwordSetAt" in existingInvitation) {
+        existingInvitation.passwordSetAt = null;
+      }
 
       await existingInvitation.save();
 
@@ -808,7 +833,8 @@ export async function POST(
         name,
         email,
         roleName: String(
-          (role as any).name || "Administrator"
+          (role as any).name ||
+            "Administrator",
         ),
         inviteUrl,
         expiresAt,
@@ -819,7 +845,6 @@ export async function POST(
       // ------------------------------------------------------
 
       existingInvitation.status = "sent";
-
       await existingInvitation.save();
 
       return NextResponse.json(
@@ -839,7 +864,7 @@ export async function POST(
         },
         {
           status: 200,
-        }
+        },
       );
     }
 
@@ -868,6 +893,8 @@ export async function POST(
         tokenHash,
         expiresAt,
         status: "pending",
+        acceptedAt: null,
+        passwordSetAt: null,
       });
 
     // --------------------------------------------------------
@@ -886,7 +913,8 @@ export async function POST(
         name,
         email,
         roleName: String(
-          (role as any).name || "Administrator"
+          (role as any).name ||
+            "Administrator",
         ),
         inviteUrl,
         expiresAt,
@@ -894,8 +922,10 @@ export async function POST(
     } catch (emailError) {
       // Remove newly-created invitation if email failed,
       // so there is no unusable pending invitation.
-      await (TeamInvitation as any).findByIdAndDelete(
-        invitation._id
+      await (
+        TeamInvitation as any
+      ).findByIdAndDelete(
+        invitation._id,
       );
 
       throw emailError;
@@ -906,7 +936,6 @@ export async function POST(
     // --------------------------------------------------------
 
     invitation.status = "sent";
-
     await invitation.save();
 
     // --------------------------------------------------------
@@ -930,12 +959,12 @@ export async function POST(
       },
       {
         status: 201,
-      }
+      },
     );
   } catch (error) {
     console.error(
       "Admin invitation error:",
-      error
+      error,
     );
 
     return NextResponse.json(
@@ -948,7 +977,7 @@ export async function POST(
       },
       {
         status: 500,
-      }
+      },
     );
   }
 }

@@ -8,6 +8,7 @@ import mongoose, {
 export type TeamInvitationStatus =
   | "pending"
   | "accepted"
+  | "sent"
   | "expired"
   | "cancelled";
 
@@ -32,6 +33,8 @@ export interface ITeamInvitation extends Document {
   status: TeamInvitationStatus;
 
   acceptedAt?: Date | null;
+
+  passwordSetAt?: Date | null;
 
   createdAt: Date;
   updatedAt: Date;
@@ -98,6 +101,7 @@ const TeamInvitationSchema =
         type: String,
         enum: [
           "pending",
+          "sent",
           "accepted",
           "expired",
           "cancelled",
@@ -110,10 +114,15 @@ const TeamInvitationSchema =
         type: Date,
         default: null,
       },
+
+      passwordSetAt: {
+        type: Date,
+        default: null,
+      },
     },
     {
       timestamps: true,
-    }
+    },
   );
 
 /**
@@ -153,14 +162,14 @@ TeamInvitationSchema.index(
     partialFilterExpression: {
       status: "pending",
     },
-  }
+  },
 );
 
 const TeamInvitation: Model<ITeamInvitation> =
   mongoose.models.TeamInvitation ||
   mongoose.model<ITeamInvitation>(
     "TeamInvitation",
-    TeamInvitationSchema
+    TeamInvitationSchema,
   );
 
 export default TeamInvitation;
