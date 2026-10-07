@@ -1,4 +1,8 @@
-import { getCurrentAdminContext } from "@/lib/admin-authorization";
+import {
+  getCurrentAdminContext,
+  requireAdminPermission,
+} from "@/lib/admin-authorization";
+
 import { can } from "@/lib/permissions";
 
 import { NextRequest, NextResponse } from "next/server";

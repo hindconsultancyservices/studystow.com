@@ -422,24 +422,35 @@ export default function AdminDashboardPage() {
           ? customersResponse.data
           : [];
 
-        const customerStats: CustomerStats = {
-          totalCustomers: Number(
-            customersResponse?.stats?.totalCustomers ?? 0
-          ),
+        const safeCustomersResponse: CustomersResponse =
+  customersResponse ?? {
+    success: false,
+    data: [],
+    stats: {
+      totalCustomers: 0,
+      activeCustomers: 0,
+      inactiveCustomers: 0,
+      newCustomers: 0,
+    },
+  };
 
-          activeCustomers: Number(
-            customersResponse?.stats?.activeCustomers ?? 0
-          ),
+const customerStats: CustomerStats = {
+  totalCustomers: Number(
+    safeCustomersResponse.stats?.totalCustomers ?? 0
+  ),
 
-          inactiveCustomers: Number(
-            customersResponse?.stats?.inactiveCustomers ?? 0
-          ),
+  activeCustomers: Number(
+    safeCustomersResponse.stats?.activeCustomers ?? 0
+  ),
 
-          newCustomers: Number(
-            customersResponse.stats?.newCustomers ??
-              0
-          ),
-        };
+  inactiveCustomers: Number(
+    safeCustomersResponse.stats?.inactiveCustomers ?? 0
+  ),
+
+  newCustomers: Number(
+    safeCustomersResponse.stats?.newCustomers ?? 0
+  ),
+};
 
         const reviews = Array.isArray(
           reviewsResponse?.data
@@ -447,27 +458,43 @@ export default function AdminDashboardPage() {
           ? reviewsResponse.data
           : [];
 
+        const safeReviewsResponse: ReviewsResponse =
+  reviewsResponse ?? {
+    success: false,
+    data: [],
+    stats: {
+      total: 0,
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      averageRating: 0,
+    },
+    pagination: {
+      total: 0,
+    },
+  };
+
         const reviewStats = {
           total: Number(
-            reviewsResponse?.stats?.total ??
-              reviewsResponse?.pagination?.total ??
+            safeReviewsResponse.stats?.total ??
+              safeReviewsResponse.pagination?.total ??
               0
           ),
 
           pending: Number(
-            reviewsResponse?.stats?.pending ?? 0
+            safeReviewsResponse.stats?.pending ?? 0
           ),
 
           approved: Number(
-            reviewsResponse?.stats?.approved ?? 0
+            safeReviewsResponse.stats?.approved ?? 0
           ),
 
           rejected: Number(
-            reviewsResponse?.stats?.rejected ?? 0
+            safeReviewsResponse.stats?.rejected ?? 0
           ),
 
           averageRating: Number(
-            reviewsResponse?.stats?.averageRating ??
+            safeReviewsResponse.stats?.averageRating ??
               0
           ),
         };

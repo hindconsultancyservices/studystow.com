@@ -284,7 +284,7 @@ export async function GET() {
 
     const safeSettings = stripOwnerOnlySettings(
       auth.context.actor,
-      settings as Record<string, unknown>
+      settings as unknown as Record<string, unknown>
     );
 
     return NextResponse.json({
@@ -347,7 +347,7 @@ export async function PUT(request: NextRequest) {
     let settings = await StoreSettings.findOne();
 
     const existingValues = settings
-      ? (settings.toObject() as Record<string, unknown>)
+      ? settings.toObject() as unknown as Record<string, unknown>
       : (defaultSettings as Record<string, unknown>);
 
     const mergedInput = {
@@ -383,7 +383,7 @@ export async function PUT(request: NextRequest) {
       message: "Settings saved successfully",
       data: stripOwnerOnlySettings(
         auth.context.actor,
-        settings.toObject() as Record<string, unknown>
+        settings.toObject() as unknown as Record<string, unknown>
       ),
     });
   } catch (error) {

@@ -101,13 +101,9 @@ export async function PATCH(
     }
 
     // Prevent an owner from suspending their own account.
-    const currentUserId =
-      String(
-        currentUser.id ||
-          currentUser._id ||
-          currentUser.userId ||
-          ""
-      );
+    const currentUserId = String(
+  currentUser.id || ""
+);
 
     if (
       currentUserId &&
