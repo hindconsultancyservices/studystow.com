@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
+import { logFailure, logSuccess } from "@/lib/audit-log";
 import connectDB from "@/lib/db";
 import Role from "@/models/Role";
 
@@ -50,6 +51,15 @@ function isOwner(user: any) {
     !!ownerEmail &&
     email === ownerEmail &&
     active
+  );
+}
+
+function getActorId(user: any): string | null {
+  return (
+    user?.id ||
+    user?._id ||
+    user?.userId ||
+    null
   );
 }
 
@@ -444,6 +454,19 @@ export async function POST(
       createdBy,
     });
 
+    await logSuccess(request, {
+      actor: getActorId(sessionUser),
+      action: "role_created",
+      resource: "role",
+      resourceId: String(role._id),
+      metadata: {
+        name: role.name,
+        slug: role.slug,
+        description: role.description || "",
+        permissions: role.permissions || {},
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -479,6 +502,28 @@ export async function POST(
       "POST /api/admin/roles-permissions/roles error:",
       error
     );
+
+    try {
+      const failedSession = await getServerSession(authOptions);
+      const failedUser = failedSession?.user as any;
+
+      await logFailure(request, {
+        actor: getActorId(failedUser),
+        action: "role_create_failed",
+        resource: "role",
+        metadata: {
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        },
+      });
+    } catch (auditError) {
+      console.error(
+        "Failed to write role creation failure audit log:",
+        auditError
+      );
+    }
 
     if (error?.code === 11000) {
       return NextResponse.json(

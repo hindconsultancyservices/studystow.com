@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
+import { logFailure, logSuccess } from "@/lib/audit-log";
 import connectDB from "@/lib/db";
 import Role from "@/models/Role";
 import User from "@/models/User";
@@ -59,6 +60,15 @@ function isOwner(user: any) {
     !!ownerEmail &&
     email === ownerEmail &&
     active
+  );
+}
+
+function getActorId(user: any): string | null {
+  return (
+    user?.id ||
+    user?._id ||
+    user?.userId ||
+    null
   );
 }
 
@@ -361,6 +371,9 @@ export async function PATCH(
     /*
      * Save only fields that were actually provided.
      */
+    const previousName = String(role.name || "");
+    const previousSlug = String(role.slug || "");
+
     role.name = nextName;
     role.slug = nextSlug;
 
@@ -400,6 +413,44 @@ export async function PATCH(
     const updatedRole =
       await Role.findById(role._id).lean();
 
+    const actorId = getActorId(
+      session.user as any,
+    );
+
+    await logSuccess(request, {
+      actor: actorId,
+      action: "role_updated",
+      resource: "role",
+      resourceId: String(role._id),
+      metadata: {
+        nameBefore: previousName,
+        nameAfter: nextName,
+        slugBefore: previousSlug,
+        slugAfter: nextSlug,
+        descriptionChanged:
+          description !== undefined,
+        permissionsChanged:
+          permissions !== undefined,
+        permissions:
+          permissions !== undefined
+            ? permissions
+            : role.permissions || {},
+      },
+    });
+
+    if (permissions !== undefined) {
+      await logSuccess(request, {
+        actor: actorId,
+        action: "permissions_changed",
+        resource: "role",
+        resourceId: String(role._id),
+        metadata: {
+          roleName: nextName,
+          permissions,
+        },
+      });
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -416,6 +467,30 @@ export async function PATCH(
       "PATCH /api/admin/roles-permissions/roles/[id] error:",
       error,
     );
+
+    try {
+      const failedSession = await getServerSession(authOptions);
+      const failedUser = failedSession?.user as any;
+      const { id: failedRoleId } = await context.params;
+
+      await logFailure(request, {
+        actor: getActorId(failedUser),
+        action: "role_update_failed",
+        resource: "role",
+        resourceId: failedRoleId || null,
+        metadata: {
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        },
+      });
+    } catch (auditError) {
+      console.error(
+        "Failed to write role update failure audit log:",
+        auditError,
+      );
+    }
 
     if (error?.code === 11000) {
       return NextResponse.json(
@@ -569,9 +644,27 @@ export async function DELETE(
       );
     }
 
+    const actorId = getActorId(
+      session.user as any,
+    );
+
     await Role.findByIdAndDelete(
       role._id,
     );
+
+    await logSuccess(request, {
+      actor: actorId,
+      action: "role_deleted",
+      resource: "role",
+      resourceId: String(role._id),
+      metadata: {
+        name: role.name,
+        slug: role.slug,
+        description: role.description || "",
+        assignedUserCount,
+        pendingInvitationCount,
+      },
+    });
 
     return NextResponse.json(
       {
@@ -591,6 +684,30 @@ export async function DELETE(
       "DELETE /api/admin/roles-permissions/roles/[id] error:",
       error,
     );
+
+    try {
+      const failedSession = await getServerSession(authOptions);
+      const failedUser = failedSession?.user as any;
+      const { id: failedRoleId } = await context.params;
+
+      await logFailure(request, {
+        actor: getActorId(failedUser),
+        action: "role_delete_failed",
+        resource: "role",
+        resourceId: failedRoleId || null,
+        metadata: {
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        },
+      });
+    } catch (auditError) {
+      console.error(
+        "Failed to write role deletion failure audit log:",
+        auditError,
+      );
+    }
 
     return NextResponse.json(
       {

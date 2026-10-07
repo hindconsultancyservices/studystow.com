@@ -1,3 +1,5 @@
+
+import mongoose from "mongoose";
 import connectDB from "@/lib/db";
 import AuditLog from "@/models/AuditLog";
 
@@ -8,33 +10,72 @@ export type AuditLogInput = {
   action: string;
   resource: string;
   resourceId?: string | null;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   ipAddress?: string | null;
   userAgent?: string | null;
   result?: AuditResult;
 };
 
 /**
- * Create an audit log.
+ * Create an audit log record.
  *
- * Audit logs are stored in MongoDB and should be used
- * for sensitive admin/RBAC actions.
+ * IMPORTANT:
+ * - Audit logging must never break the main business operation.
+ * - Invalid/missing actor IDs are handled safely.
+ * - MongoDB connection is created automatically.
  */
 export async function createAuditLog(
-  input: AuditLogInput
+  input: AuditLogInput,
 ) {
   try {
     await connectDB();
 
+    let actor: mongoose.Types.ObjectId | null = null;
+
+    if (
+      input.actor &&
+      mongoose.Types.ObjectId.isValid(input.actor)
+    ) {
+      actor = new mongoose.Types.ObjectId(
+        input.actor,
+      );
+    }
+
     const log = await AuditLog.create({
-      actor: input.actor || null,
-      action: input.action,
-      resource: input.resource,
-      resourceId: input.resourceId || null,
-      metadata: input.metadata || {},
-      ipAddress: input.ipAddress || "",
-      userAgent: input.userAgent || "",
-      result: input.result || "success",
+      actor,
+
+      action: String(input.action || "").trim(),
+
+      resource: String(
+        input.resource || "",
+      ).trim(),
+
+      resourceId:
+        input.resourceId !== undefined &&
+        input.resourceId !== null
+          ? String(input.resourceId)
+          : "",
+
+      metadata:
+        input.metadata &&
+        typeof input.metadata === "object"
+          ? input.metadata
+          : {},
+
+      ipAddress:
+        input.ipAddress
+          ?.toString()
+          .trim() || "",
+
+      userAgent:
+        input.userAgent
+          ?.toString()
+          .trim() || "",
+
+      result:
+        input.result === "failed"
+          ? "failed"
+          : "success",
     });
 
     return {
@@ -43,12 +84,12 @@ export async function createAuditLog(
     };
   } catch (error) {
     /**
-     * Audit logging must never break the main
-     * business operation.
+     * NEVER allow audit logging failure
+     * to break the actual admin operation.
      */
     console.error(
       "Audit log creation failed:",
-      error
+      error,
     );
 
     return {
@@ -59,66 +100,96 @@ export async function createAuditLog(
 }
 
 /**
- * Extract client IP address from a request.
+ * Extract the client IP address from a request.
+ *
+ * Supports:
+ * - x-forwarded-for
+ * - x-real-ip
+ * - cf-connecting-ip
  */
 export function getRequestIp(
-  request: Request
+  request: Request,
 ): string {
-  const headers = request.headers;
+  try {
+    const headers = request.headers;
 
-  const forwardedFor =
-    headers.get("x-forwarded-for");
+    const forwardedFor =
+      headers.get("x-forwarded-for");
 
-  if (forwardedFor) {
-    return forwardedFor
-      .split(",")[0]
-      .trim();
+    if (forwardedFor) {
+      return (
+        forwardedFor
+          .split(",")[0]
+          ?.trim() || ""
+      );
+    }
+
+    const realIp =
+      headers.get("x-real-ip");
+
+    if (realIp) {
+      return realIp.trim();
+    }
+
+    const cloudflareIp =
+      headers.get("cf-connecting-ip");
+
+    if (cloudflareIp) {
+      return cloudflareIp.trim();
+    }
+
+    return "";
+  } catch (error) {
+    console.error(
+      "Failed to read request IP:",
+      error,
+    );
+
+    return "";
   }
-
-  const realIp =
-    headers.get("x-real-ip");
-
-  if (realIp) {
-    return realIp.trim();
-  }
-
-  const connectingIp =
-    headers.get("cf-connecting-ip");
-
-  if (connectingIp) {
-    return connectingIp.trim();
-  }
-
-  return "";
 }
 
 /**
  * Get the request user-agent.
  */
 export function getRequestUserAgent(
-  request: Request
+  request: Request,
 ): string {
-  return (
-    request.headers.get(
-      "user-agent"
-    ) || ""
-  );
+  try {
+    return (
+      request.headers.get(
+        "user-agent",
+      ) || ""
+    );
+  } catch (error) {
+    console.error(
+      "Failed to read request user-agent:",
+      error,
+    );
+
+    return "";
+  }
 }
 
 /**
- * Create an audit log directly from a request.
+ * Create an audit log directly from
+ * a server request.
  */
 export async function auditRequest(
   request: Request,
   input: Omit<
     AuditLogInput,
     "ipAddress" | "userAgent"
-  >
+  >,
 ) {
   return createAuditLog({
     ...input,
-    ipAddress: getRequestIp(request),
-    userAgent: getRequestUserAgent(request),
+
+    ipAddress:
+      getRequestIp(request),
+
+    userAgent:
+      getRequestUserAgent(request),
   });
 }
 
@@ -130,7 +201,7 @@ export async function logSuccess(
   input: Omit<
     AuditLogInput,
     "ipAddress" | "userAgent" | "result"
-  >
+  >,
 ) {
   return auditRequest(request, {
     ...input,
@@ -146,7 +217,7 @@ export async function logFailure(
   input: Omit<
     AuditLogInput,
     "ipAddress" | "userAgent" | "result"
-  >
+  >,
 ) {
   return auditRequest(request, {
     ...input,
