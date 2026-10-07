@@ -3,25 +3,23 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import AuditLog from "@/models/AuditLog";
-import User from "@/models/User";
 
 export const dynamic = "force-dynamic";
-
-function isOwner(user: any) {
-  return (
-    user?.role === "owner" ||
-    user?.adminRole === "owner" ||
-    user?.adminRole === "super_admin"
-  );
-}
+export const revalidate = 0;
 
 function isAdmin(user: any) {
+  const role = String(user?.role || "").toLowerCase();
+  const adminRole = String(user?.adminRole || "")
+    .toLowerCase()
+    .replace(/-/g, "_")
+    .replace(/ /g, "_");
+
   return (
-    user?.role === "admin" ||
-    user?.role === "owner" ||
-    user?.adminRole === "admin" ||
-    user?.adminRole === "owner" ||
-    user?.adminRole === "super_admin"
+    role === "admin" ||
+    role === "owner" ||
+    adminRole === "admin" ||
+    adminRole === "owner" ||
+    adminRole === "super_admin"
   );
 }
 
@@ -55,30 +53,21 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
 
-    const page = Math.max(
-      1,
-      Number(searchParams.get("page") || 1)
-    );
+    const rawPage = Number(searchParams.get("page") || "1");
+    const rawLimit = Number(searchParams.get("limit") || "20");
 
-    const limit = Math.min(
-      100,
-      Math.max(
-        1,
-        Number(searchParams.get("limit") || 20)
-      )
-    );
+    const page = Number.isFinite(rawPage)
+      ? Math.max(1, Math.floor(rawPage))
+      : 1;
 
-    const search =
-      searchParams.get("search")?.trim() || "";
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(100, Math.max(1, Math.floor(rawLimit)))
+      : 20;
 
-    const result =
-      searchParams.get("result")?.trim() || "";
-
-    const resource =
-      searchParams.get("resource")?.trim() || "";
-
-    const action =
-      searchParams.get("action")?.trim() || "";
+    const search = searchParams.get("search")?.trim() || "";
+    const result = searchParams.get("result")?.trim() || "";
+    const resource = searchParams.get("resource")?.trim() || "";
+    const action = searchParams.get("action")?.trim() || "";
 
     const filter: Record<string, any> = {};
 
@@ -120,6 +109,12 @@ export async function GET(request: NextRequest) {
             $options: "i",
           },
         },
+        {
+          userAgent: {
+            $regex: search,
+            $options: "i",
+          },
+        },
       ];
     }
 
@@ -127,10 +122,7 @@ export async function GET(request: NextRequest) {
 
     const [logs, total] = await Promise.all([
       AuditLog.find(filter)
-        .populate(
-          "actor",
-          "name email role adminRole"
-        )
+        .populate("actor", "name email role adminRole")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -149,33 +141,41 @@ export async function GET(request: NextRequest) {
             name: log.actor.name || "",
             email: log.actor.email || "",
             role: log.actor.role || "",
-            adminRole:
-              log.actor.adminRole || null,
+            adminRole: log.actor.adminRole || null,
           }
         : null,
 
       action: log.action || "",
       resource: log.resource || "",
-      resourceId: log.resourceId
-        ? String(log.resourceId)
-        : "",
+      resourceId:
+        log.resourceId !== undefined &&
+        log.resourceId !== null
+          ? String(log.resourceId)
+          : "",
 
-      metadata: log.metadata || {},
+      metadata:
+        log.metadata &&
+        typeof log.metadata === "object"
+          ? log.metadata
+          : {},
 
       ipAddress: log.ipAddress || "",
       userAgent: log.userAgent || "",
       result: log.result || "success",
 
-      createdAt: log.createdAt,
-      updatedAt: log.updatedAt,
+      createdAt: log.createdAt
+        ? new Date(log.createdAt).toISOString()
+        : null,
+
+      updatedAt: log.updatedAt
+        ? new Date(log.updatedAt).toISOString()
+        : null,
     }));
 
-    const totalPages =
-      Math.ceil(total / limit) || 1;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
 
     return NextResponse.json({
       success: true,
-
       data: formattedLogs,
 
       pagination: {
@@ -183,20 +183,32 @@ export async function GET(request: NextRequest) {
         limit,
         total,
         totalPages,
+
+        // Backward compatibility with current frontend
+        pages: totalPages,
+
         hasNextPage: page < totalPages,
         hasPreviousPage: page > 1,
       },
     });
   } catch (error) {
     console.error(
-      "GET /api/auditlogs error:",
+      "GET /api/admin/audit-logs error:",
       error
     );
+
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : String(error);
 
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch audit logs.",
+        message:
+          process.env.NODE_ENV === "development"
+            ? `Failed to fetch audit logs: ${errorMessage}`
+            : "Failed to fetch audit logs.",
       },
       { status: 500 }
     );

@@ -82,133 +82,81 @@ function createSlug(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-/**
- * Create default system roles if they do not exist.
- */
-async function ensureDefaultRoles(createdBy?: string) {
-  const defaultRoles = [
-    {
-      name: "Manager",
-      slug: "manager",
-      description:
-        "Can manage day-to-day store operations without owner-level access.",
-      permissions: {
-        dashboard: {
-          view: true,
-        },
-        books: {
-          view: true,
-          create: true,
-          edit: true,
-        },
-        categories: {
-          view: true,
-          create: true,
-          edit: true,
-        },
-        inventory: {
-          view: true,
-          update: true,
-        },
-        orders: {
-          view: true,
-          update: true,
-        },
-        customers: {
-          view: true,
-          create: true,
-          edit: true,
-        },
-        coupons: {
-          view: true,
-          create: true,
-          edit: true,
-        },
-        reviews: {
-          view: true,
-          edit: true,
-        },
-        pages: {
-          view: true,
-          create: true,
-          edit: true,
-        },
-        reports: {
-          view: true,
-        },
-        payments: {
-          view: true,
-          update: true,
-        },
-        adminUsers: {
-          view: true,
-        },
-        settings: {
-          view: true,
-        },
-      },
-      isSystem: true,
-    },
-    {
-      name: "Staff",
-      slug: "staff",
-      description:
-        "Basic store staff access for daily operations.",
-      permissions: {
-        dashboard: {
-          view: true,
-        },
-        books: {
-          view: true,
-          create: true,
-          edit: true,
-        },
-        categories: {
-          view: true,
-        },
-        inventory: {
-          view: true,
-          update: true,
-        },
-        orders: {
-          view: true,
-          update: true,
-        },
-        customers: {
-          view: true,
-        },
-        coupons: {
-          view: true,
-        },
-        reviews: {
-          view: true,
-        },
-        pages: {
-          view: true,
-        },
-        reports: {
-          view: true,
-        },
-        payments: {
-          view: true,
-        },
-      },
-      isSystem: true,
-    },
-  ];
+type PermissionMap = Record<
+  string,
+  Record<string, boolean>
+>;
 
-  for (const roleData of defaultRoles) {
-    const existingRole = await Role.findOne({
-      slug: roleData.slug,
-    });
+function normalizePermissions(
+  value: unknown
+): PermissionMap {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return {};
+  }
 
-    if (!existingRole) {
-      await Role.create({
-        ...roleData,
-        createdBy: createdBy || null,
-      });
+  const source =
+    value as Record<string, unknown>;
+
+  const normalized: PermissionMap = {};
+
+  for (const [
+    feature,
+    featurePermissions,
+  ] of Object.entries(source)) {
+    // Frontend format:
+    // books: ["view", "edit"]
+    if (Array.isArray(featurePermissions)) {
+      const permissions: Record<
+        string,
+        boolean
+      > = {};
+
+      for (const permission of featurePermissions) {
+        if (
+          typeof permission === "string" &&
+          permission.trim()
+        ) {
+          permissions[permission] = true;
+        }
+      }
+
+      normalized[feature] = permissions;
+      continue;
+    }
+
+    // MongoDB format:
+    // books: { view: true, edit: true }
+    if (
+      featurePermissions &&
+      typeof featurePermissions === "object"
+    ) {
+      const permissions: Record<
+        string,
+        boolean
+      > = {};
+
+      for (const [
+        permission,
+        enabled,
+      ] of Object.entries(
+        featurePermissions as Record<
+          string,
+          unknown
+        >
+      )) {
+        permissions[permission] =
+          enabled === true;
+      }
+
+      normalized[feature] = permissions;
     }
   }
+
+  return normalized;
 }
 
 /**
@@ -216,10 +164,17 @@ async function ensureDefaultRoles(createdBy?: string) {
  * /api/admin/roles-permissions/roles
  *
  * Owner + Admin can view roles.
+ *
+ * IMPORTANT:
+ * No default/system roles are automatically created here.
+ * Roles returned are the actual MongoDB records.
  */
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest
+) {
   try {
-    const session = await getServerSession(authOptions);
+    const session =
+      await getServerSession(authOptions);
 
     if (!session?.user) {
       return NextResponse.json(
@@ -231,7 +186,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const sessionUser = session.user as any;
+    const sessionUser =
+      session.user as any;
 
     if (!isAdmin(sessionUser)) {
       return NextResponse.json(
@@ -245,10 +201,6 @@ export async function GET(request: NextRequest) {
 
     await connectDB();
 
-    await ensureDefaultRoles(
-      sessionUser.id || sessionUser._id
-    );
-
     const { searchParams } =
       new URL(request.url);
 
@@ -258,10 +210,11 @@ export async function GET(request: NextRequest) {
     const filter: Record<string, any> = {};
 
     if (search) {
-      const escapedSearch = search.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&"
-      );
+      const escapedSearch =
+        search.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        );
 
       filter.$or = [
         {
@@ -341,11 +294,12 @@ export async function GET(request: NextRequest) {
  *
  * Only Owner can create custom roles.
  */
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest
+) {
   try {
-    const session = await getServerSession(
-      authOptions
-    );
+    const session =
+      await getServerSession(authOptions);
 
     if (!session?.user) {
       return NextResponse.json(
@@ -357,7 +311,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const sessionUser = session.user as any;
+    const sessionUser =
+      session.user as any;
 
     if (!isOwner(sessionUser)) {
       return NextResponse.json(
@@ -383,10 +338,9 @@ export async function POST(request: NextRequest) {
     ).trim();
 
     const permissions =
-      body?.permissions &&
-      typeof body.permissions === "object"
-        ? body.permissions
-        : {};
+      normalizePermissions(
+        body?.permissions
+      );
 
     if (!name) {
       return NextResponse.json(
@@ -508,9 +462,7 @@ export async function POST(request: NextRequest) {
             role.isSystem
           ),
           createdBy: role.createdBy
-            ? String(
-                role.createdBy
-              )
+            ? String(role.createdBy)
             : null,
           createdAt:
             role.createdAt?.toISOString?.() ||
