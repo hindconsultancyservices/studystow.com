@@ -183,7 +183,7 @@ export default function AdminContactPage() {
       params.set("limit", "100");
 
       const response = await fetch(
-        `/api/contact?${params.toString()}`,
+        `/api/admin/contact?${params.toString()}`,
         {
           method: "GET",
           cache: "no-store",
@@ -272,7 +272,7 @@ export default function AdminContactPage() {
       setError("");
 
       const response = await fetch(
-        `/api/contact/${contact._id}`,
+        `/api/admin/contact/${contact._id}`,
         {
           method: "PATCH",
           headers: {
@@ -338,7 +338,7 @@ export default function AdminContactPage() {
       setError("");
 
       const response = await fetch(
-        `/api/contact/${contact._id}`,
+        `/api/admin/contact/${contact._id}`,
         {
           method: "DELETE",
         }

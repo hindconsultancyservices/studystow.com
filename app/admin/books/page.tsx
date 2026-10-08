@@ -61,7 +61,7 @@ export default function AdminBooksPage() {
         setLoading(true);
         setError("");
 
-        const response = await fetch("/api/books", {
+        const response = await fetch("/api/admin/books", {
           method: "GET",
           cache: "no-store",
         });
@@ -196,7 +196,7 @@ export default function AdminBooksPage() {
       setActionError("");
 
       const response = await fetch(
-        `/api/books/${encodeURIComponent(
+        `/api/admin/books/${encodeURIComponent(
           book.id
         )}`,
         {

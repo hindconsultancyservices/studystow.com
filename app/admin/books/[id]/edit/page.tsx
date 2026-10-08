@@ -119,10 +119,10 @@ export default function EditBookPage() {
 
         const [bookResponse, categoriesResponse] =
           await Promise.all([
-            fetch(`/api/books/${encodeURIComponent(sku)}`, {
+            fetch(`/api/admin/books/${encodeURIComponent(sku)}`, {
               cache: "no-store",
             }),
-            fetch("/api/categories?active=true", {
+            fetch("/api/admin/categories?active=true", {
               cache: "no-store",
             }),
           ]);
@@ -385,7 +385,7 @@ export default function EditBookPage() {
       setSaving(true);
 
       const response = await fetch(
-        `/api/books/${encodeURIComponent(sku)}`,
+        `/api/admin/books/${encodeURIComponent(sku)}`,
         {
           method: "PUT",
           headers: {

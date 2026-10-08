@@ -138,7 +138,7 @@ export default function AdminCouponsPage() {
       }
 
       const response = await fetch(
-        `/api/coupons?${params.toString()}`,
+        `/api/admin/coupons?${params.toString()}`,
         {
           cache: "no-store",
         }

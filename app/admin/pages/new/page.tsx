@@ -32,7 +32,7 @@ export default function NewPage() {
       setError("");
 
       const response = await fetch(
-        "/api/pages",
+        "/api/admin/pages",
         {
           method: "POST",
           headers: {

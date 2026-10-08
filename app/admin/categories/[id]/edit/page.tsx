@@ -51,7 +51,7 @@ export default function EditCategoryPage() {
         setError("");
 
         const response = await fetch(
-          `/api/categories/${encodeURIComponent(id)}`,
+          `/api/admin/categories/${encodeURIComponent(id)}`,
           {
             cache: "no-store",
           }
@@ -142,7 +142,7 @@ export default function EditCategoryPage() {
       setSaving(true);
 
       const response = await fetch(
-        `/api/categories/${encodeURIComponent(id)}`,
+        `/api/admin/categories/${encodeURIComponent(id)}`,
         {
           method: "PUT",
           headers: {

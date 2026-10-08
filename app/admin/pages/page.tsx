@@ -168,7 +168,7 @@ export default function AdminPagesPage() {
         }
 
         const response = await fetch(
-          `/api/pages?${params.toString()}`,
+          `/api/admin/pages?${params.toString()}`,
           {
             method: "GET",
             cache: "no-store",
@@ -234,7 +234,7 @@ export default function AdminPagesPage() {
       setError("");
 
       const response = await fetch(
-        `/api/pages/${page._id}`,
+        `/api/admin/pages/${page._id}`,
         {
           method: "DELETE",
         }

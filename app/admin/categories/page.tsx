@@ -32,7 +32,7 @@ export default function AdminCategoriesPage() {
       setLoading(true);
       setError("");
 
-      const response = await fetch("/api/categories", {
+      const response = await fetch("/api/admin/categories", {
         cache: "no-store",
       });
 
@@ -47,14 +47,14 @@ export default function AdminCategoriesPage() {
       const apiCategories: Category[] = result.data || [];
 
       /*
-       * Book count abhi /api/categories se nahi aa raha.
-       * Isliye har category ka count /api/books se calculate karenge.
+       * Book count abhi /api/admin/categories se nahi aa raha.
+       * Isliye har category ka count /api/admin/books se calculate karenge.
        */
       let books: any[] = [];
 
       try {
         const booksResponse = await fetch(
-          "/api/books?limit=1000",
+          "/api/admin/books?limit=1000",
           {
             cache: "no-store",
           }

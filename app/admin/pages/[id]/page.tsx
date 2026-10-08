@@ -87,7 +87,7 @@ export default function AdminPageEdit() {
       setError("");
 
       const response = await fetch(
-        `/api/pages/${encodeURIComponent(id)}`,
+        `/api/admin/pages/${encodeURIComponent(id)}`,
         {
           method: "GET",
           cache: "no-store",
@@ -178,7 +178,7 @@ export default function AdminPageEdit() {
       }
 
       const response = await fetch(
-        `/api/pages/${encodeURIComponent(id)}`,
+        `/api/admin/pages/${encodeURIComponent(id)}`,
         {
           method: "PUT",
           headers: {
@@ -269,7 +269,7 @@ export default function AdminPageEdit() {
       setError("");
 
       const response = await fetch(
-        `/api/pages/${encodeURIComponent(id)}`,
+        `/api/admin/pages/${encodeURIComponent(id)}`,
         {
           method: "DELETE",
         }

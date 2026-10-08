@@ -82,7 +82,7 @@ export default function NewCouponPage() {
     try {
       setSaving(true);
 
-      const response = await fetch("/api/coupons", {
+      const response = await fetch("/api/admin/coupons", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

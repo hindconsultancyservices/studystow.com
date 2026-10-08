@@ -398,7 +398,7 @@ export default function AdminDashboardPage() {
           reviewsResponse,
         ] = await Promise.all([
           canView("books")
-            ? fetchJson<BooksResponse>("/api/books?limit=1000")
+            ? fetchJson<BooksResponse>("/api/admin/books?limit=1000")
             : Promise.resolve(null),
 
           canView("customers")
@@ -406,7 +406,7 @@ export default function AdminDashboardPage() {
             : Promise.resolve(null),
 
           canView("reviews")
-            ? fetchJson<ReviewsResponse>("/api/reviews?limit=10&page=1")
+            ? fetchJson<ReviewsResponse>("/api/admin/reviews?limit=10&page=1")
             : Promise.resolve(null),
         ]);
 
@@ -514,7 +514,7 @@ const customerStats: CustomerStats = {
         if (canView("contact")) {
           try {
             const contactsResponse =
-              await fetchJson<ContactsResponse>("/api/contact?limit=5");
+              await fetchJson<ContactsResponse>("/api/admin/contact?limit=5");
 
           const contacts = Array.isArray(
             contactsResponse.data

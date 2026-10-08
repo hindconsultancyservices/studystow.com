@@ -101,7 +101,7 @@ export default function AdminBookDetailsPage({
         }
 
         const response = await fetch(
-          `/api/books/${encodeURIComponent(id)}`,
+          `/api/admin/books/${encodeURIComponent(id)}`,
           {
             method: "GET",
             cache: "no-store",

@@ -200,7 +200,7 @@ export default function AdminReviewsPage() {
           params.set("rating", rating);
         }
 
-        const response = await fetch(`/api/reviews?${params.toString()}`, {
+        const response = await fetch(`/api/admin/reviews?${params.toString()}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -261,7 +261,7 @@ export default function AdminReviewsPage() {
       setActionId(reviewId);
       setError("");
 
-      const response = await fetch(`/api/reviews/${reviewId}`, {
+      const response = await fetch(`/api/admin/reviews/${reviewId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -298,7 +298,7 @@ export default function AdminReviewsPage() {
       setActionId(reviewId);
       setError("");
 
-      const response = await fetch(`/api/reviews/${reviewId}`, {
+      const response = await fetch(`/api/admin/reviews/${reviewId}`, {
         method: "DELETE",
       });
 

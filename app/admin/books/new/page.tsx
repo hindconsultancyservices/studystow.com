@@ -88,7 +88,7 @@ export default function NewBookPage() {
         setError("");
 
         const response = await fetch(
-          "/api/categories?active=true",
+          "/api/admin/categories?active=true",
           {
             method: "GET",
             cache: "no-store",
@@ -335,7 +335,7 @@ export default function NewBookPage() {
       setSaving(true);
 
       const response = await fetch(
-        "/api/books",
+        "/api/admin/books",
         {
           method: "POST",
           headers: {

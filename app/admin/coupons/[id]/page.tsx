@@ -58,7 +58,7 @@ export default function CouponManagePage() {
       setError("");
 
       const response = await fetch(
-        `/api/coupons/${id}`,
+        `/api/admin/coupons/${id}`,
         {
           cache: "no-store",
         }
@@ -169,7 +169,7 @@ export default function CouponManagePage() {
       setSaving(true);
 
       const response = await fetch(
-        `/api/coupons/${id}`,
+        `/api/admin/coupons/${id}`,
         {
           method: "PUT",
           headers: {
@@ -254,7 +254,7 @@ export default function CouponManagePage() {
       setError("");
 
       const response = await fetch(
-        `/api/coupons/${id}`,
+        `/api/admin/coupons/${id}`,
         {
           method: "DELETE",
         }

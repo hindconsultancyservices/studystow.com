@@ -90,7 +90,7 @@ export default function NewCategoryPage() {
     try {
       setSaving(true);
 
-      const response = await fetch("/api/categories", {
+      const response = await fetch("/api/admin/categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
