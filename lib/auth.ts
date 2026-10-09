@@ -1,3 +1,4 @@
+
 import NextAuth, { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
@@ -5,16 +6,18 @@ import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 
+type PermissionMap = Record<
+  string,
+  Record<string, boolean>
+>;
+
 declare module "next-auth" {
   interface Session {
     user: {
       id: string;
       role: string;
       adminRole?: string | null;
-      permissions?: Record<
-        string,
-        Record<string, boolean>
-      >;
+      permissions?: PermissionMap;
       status?: string | null;
       name?: string | null;
       email?: string | null;
@@ -26,10 +29,7 @@ declare module "next-auth" {
     id: string;
     role: string;
     adminRole?: string | null;
-    permissions?: Record<
-      string,
-      Record<string, boolean>
-    >;
+    permissions?: PermissionMap;
     status?: string | null;
   }
 }
@@ -39,12 +39,33 @@ declare module "next-auth/jwt" {
     id?: string;
     role?: string;
     adminRole?: string | null;
-    permissions?: Record<
-      string,
-      Record<string, boolean>
-    >;
+    permissions?: PermissionMap;
     status?: string | null;
   }
+}
+
+function normalizeStatus(value: unknown): string {
+  return String(value ?? "active")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
+function isAccountActive(user: {
+  active?: boolean;
+  status?: unknown;
+}): boolean {
+  const status = normalizeStatus(user.status);
+
+  return (
+    user.active !== false &&
+    ![
+      "inactive",
+      "suspended",
+      "removed",
+      "disabled",
+    ].includes(status)
+  );
 }
 
 export const authOptions: NextAuthOptions = {
@@ -101,11 +122,14 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const passwordMatched =
-            await bcrypt.compare(
-              password,
-              user.password
-            );
+          if (!isAccountActive(user)) {
+            return null;
+          }
+
+          const passwordMatched = await bcrypt.compare(
+            password,
+            user.password
+          );
 
           if (!passwordMatched) {
             return null;
@@ -113,21 +137,18 @@ export const authOptions: NextAuthOptions = {
 
           return {
             id: user._id.toString(),
-
             name: user.name || "",
-
             email: user.email,
-
             role: user.role || "user",
 
             adminRole:
-              (user as any).adminRole || null,
+              (user as any).adminRole ?? null,
 
             permissions:
-              (user as any).permissions || {},
+              (user as any).permissions ?? {},
 
             status:
-              (user as any).status || "active",
+              (user as any).status ?? "active",
           };
         } catch (error) {
           console.error(
@@ -145,17 +166,10 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-
         token.role = user.role;
-
-        token.adminRole =
-          user.adminRole || null;
-
-        token.permissions =
-          user.permissions || {};
-
-        token.status =
-          user.status || "active";
+        token.adminRole = user.adminRole ?? null;
+        token.permissions = user.permissions ?? {};
+        token.status = user.status ?? "active";
       }
 
       return token;
@@ -163,20 +177,17 @@ export const authOptions: NextAuthOptions = {
 
     async session({ session, token }) {
       if (session.user) {
-        session.user.id =
-          token.id as string;
-
-        session.user.role =
-          token.role as string;
+        session.user.id = token.id ?? "";
+        session.user.role = token.role ?? "user";
 
         session.user.adminRole =
-          token.adminRole || null;
+          token.adminRole ?? null;
 
         session.user.permissions =
-          token.permissions || {};
+          token.permissions ?? {};
 
         session.user.status =
-          token.status || "active";
+          token.status ?? "active";
       }
 
       return session;
@@ -185,8 +196,7 @@ export const authOptions: NextAuthOptions = {
 
   secret: process.env.NEXTAUTH_SECRET,
 
-  debug:
-    process.env.NODE_ENV === "development",
+  debug: process.env.NODE_ENV === "development",
 };
 
 const handler = NextAuth(authOptions);

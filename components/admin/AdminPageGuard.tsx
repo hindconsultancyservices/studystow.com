@@ -19,6 +19,10 @@ function getRequirement(pathname: string): Requirement | null {
     return { module: "books", action: "view" };
   }
 
+  if (pathname.startsWith("/admin/reports")) {
+    return { module: "reports", action: "view" };
+  }
+
   if (pathname.startsWith("/admin/categories")) {
     if (pathname === "/admin/categories/new") return { module: "categories", action: "create" };
     if (pathname.includes("/edit")) return { module: "categories", action: "edit" };
