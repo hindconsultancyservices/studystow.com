@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { getServerSession } from "next-auth";
@@ -17,28 +18,16 @@ type RouteContext = {
   }>;
 };
 
+type PermissionMap = Record<string, Record<string, boolean>>;
+
 function isOwner(user: any) {
-  const role = String(user?.role || "")
+  const role = String(user?.role || "").trim().toLowerCase();
+  const adminRole = String(user?.adminRole || "").trim().toLowerCase();
+  const email = String(user?.email || "").trim().toLowerCase();
+  const ownerEmail = String(process.env.ADMIN_OWNER_EMAIL || "")
     .trim()
     .toLowerCase();
-
-  const adminRole = String(user?.adminRole || "")
-    .trim()
-    .toLowerCase();
-
-  const email = String(user?.email || "")
-    .trim()
-    .toLowerCase();
-
-  const ownerEmail = String(
-    process.env.ADMIN_OWNER_EMAIL || "",
-  )
-    .trim()
-    .toLowerCase();
-
-  const status = String(user?.status || "")
-    .trim()
-    .toLowerCase();
+  const status = String(user?.status || "").trim().toLowerCase();
 
   const active =
     user?.active !== false &&
@@ -56,20 +45,11 @@ function isOwner(user: any) {
     return active;
   }
 
-  return (
-    !!ownerEmail &&
-    email === ownerEmail &&
-    active
-  );
+  return !!ownerEmail && email === ownerEmail && active;
 }
 
 function getActorId(user: any): string | null {
-  return (
-    user?.id ||
-    user?._id ||
-    user?.userId ||
-    null
-  );
+  return user?.id || user?._id || user?.userId || null;
 }
 
 function createSlug(value: string) {
@@ -81,49 +61,36 @@ function createSlug(value: string) {
 }
 
 function isProtectedRole(role: any) {
-  const slug = String(role?.slug || "")
-    .trim()
-    .toLowerCase();
-
-  const name = String(role?.name || "")
-    .trim()
-    .toLowerCase();
+  const slug = String(role?.slug || "").trim().toLowerCase();
+  const name = String(role?.name || "").trim().toLowerCase();
 
   return (
-    [
-      "owner",
-      "super-admin",
-      "super_admin",
-      "superadmin",
-    ].includes(slug) ||
-    [
-      "owner",
-      "super admin",
-      "super_admin",
-    ].includes(name)
+    ["owner", "super-admin", "super_admin", "superadmin"].includes(slug) ||
+    ["owner", "super admin", "super_admin"].includes(name)
   );
 }
 
-type PermissionMap = Record<
-  string,
-  Record<string, boolean>
->;
+/**
+ * Manager and Staff are legacy role names.
+ * They can be archived without deleting their database records.
+ * Owner and Super Admin are never archived by this route.
+ */
+function isLegacyManagerOrStaff(role: any) {
+  const name = String(role?.name || "").trim().toLowerCase();
+  const slug = String(role?.slug || "").trim().toLowerCase();
 
-function normalizePermissions(
-  value: unknown,
-): PermissionMap {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value)
-  ) {
+  return (
+    ["manager", "staff"].includes(name) ||
+    ["manager", "staff"].includes(slug)
+  );
+}
+
+function normalizePermissions(value: unknown): PermissionMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
 
-  const source = value as Record<
-    string,
-    unknown
-  >;
+  const source = value as Record<string, unknown>;
   const normalized: PermissionMap = {};
 
   for (const [feature, featurePermissions] of Object.entries(source)) {
@@ -135,10 +102,7 @@ function normalizePermissions(
       continue;
     }
 
-    const entries = featurePermissions as Record<
-      string,
-      unknown
-    >;
+    const entries = featurePermissions as Record<string, unknown>;
     const permissions: Record<string, boolean> = {};
 
     for (const [permission, enabled] of Object.entries(entries)) {
@@ -160,9 +124,11 @@ function serializeRole(role: any) {
     description: String(role.description || ""),
     permissions: role.permissions || {},
     isSystem: Boolean(role.isSystem),
-    createdBy: role.createdBy
-      ? String(role.createdBy)
+    isArchived: Boolean(role.isArchived),
+    archivedAt: role.archivedAt
+      ? new Date(role.archivedAt).toISOString()
       : null,
+    createdBy: role.createdBy ? String(role.createdBy) : null,
     createdAt: role.createdAt
       ? new Date(role.createdAt).toISOString()
       : null,
@@ -174,7 +140,7 @@ function serializeRole(role: any) {
 
 /* ============================================================
    PATCH
-   Edit an existing role
+   Edit an existing active role
 ============================================================ */
 
 export async function PATCH(
@@ -182,15 +148,11 @@ export async function PATCH(
   context: RouteContext,
 ) {
   try {
-    const session =
-      await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
 
     if (!session?.user) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
+        { success: false, message: "Unauthorized." },
         { status: 401 },
       );
     }
@@ -199,8 +161,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Only the owner can modify roles.",
+          message: "Only the owner can modify roles.",
         },
         { status: 403 },
       );
@@ -210,54 +171,55 @@ export async function PATCH(
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid role ID.",
-        },
+        { success: false, message: "Invalid role ID." },
         { status: 400 },
       );
     }
 
-    const body =
-      await request.json().catch(() => null);
+    const body = await request.json().catch(() => null);
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json(
+        { success: false, message: "Invalid request body." },
+        { status: 400 },
+      );
+    }
 
     const name =
-      body?.name !== undefined
-        ? String(body.name || "").trim()
-        : undefined;
+      body.name !== undefined ? String(body.name || "").trim() : undefined;
 
     const description =
-      body?.description !== undefined
+      body.description !== undefined
         ? String(body.description || "").trim()
         : undefined;
 
     const permissions =
-      body?.permissions !== undefined
+      body.permissions !== undefined
         ? normalizePermissions(body.permissions)
         : undefined;
 
-    if (
-      name !== undefined &&
-      !name
-    ) {
+    if (name !== undefined && !name) {
+      return NextResponse.json(
+        { success: false, message: "Role name is required." },
+        { status: 400 },
+      );
+    }
+
+    if (name !== undefined && name.length > 100) {
       return NextResponse.json(
         {
           success: false,
-          message: "Role name is required.",
+          message: "Role name cannot exceed 100 characters.",
         },
         { status: 400 },
       );
     }
 
-    if (
-      name !== undefined &&
-      name.length > 100
-    ) {
+    if (description !== undefined && description.length > 500) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Role name cannot exceed 100 characters.",
+          message: "Role description cannot exceed 500 characters.",
         },
         { status: 400 },
       );
@@ -265,50 +227,44 @@ export async function PATCH(
 
     await connectDB();
 
-    const role =
-      await Role.findById(id);
+    const role = (await Role.findById(id)) as any;
 
     if (!role) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Role not found.",
-        },
+        { success: false, message: "Role not found." },
         { status: 404 },
       );
     }
 
-    /*
-     * System roles cannot be changed.
-     * This keeps Owner / Super Admin protection intact.
-     */
+    if (role.isArchived === true) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This role is archived and cannot be modified.",
+        },
+        { status: 409 },
+      );
+    }
+
     if (role.isSystem || isProtectedRole(role)) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "System and protected roles cannot be modified.",
+          message: "System and protected roles cannot be modified.",
         },
         { status: 403 },
       );
     }
 
-    const nextName =
-      name !== undefined
-        ? name
-        : String(role.name || "");
-
+    const nextName = name !== undefined ? name : String(role.name || "");
     const nextSlug =
-      name !== undefined
-        ? createSlug(nextName)
-        : String(role.slug || "");
+      name !== undefined ? createSlug(nextName) : String(role.slug || "");
 
     if (!nextSlug) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Please provide a valid role name.",
+          message: "Please provide a valid role name.",
         },
         { status: 400 },
       );
@@ -321,39 +277,33 @@ export async function PATCH(
       "superadmin",
     ];
 
-    if (
-      protectedSlugs.includes(nextSlug)
-    ) {
+    if (protectedSlugs.includes(nextSlug)) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Owner/Super Admin roles are protected.",
+          message: "Owner/Super Admin roles are protected.",
         },
         { status: 403 },
       );
     }
 
     /*
-     * Prevent duplicate role names/slugs.
+     * Only active roles count as duplicates.
+     * Archived legacy Manager/Staff records do not block new roles.
      */
+    const escapedName = nextName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     const duplicate = await Role.findOne({
-      _id: {
-        $ne: role._id,
-      },
+      _id: { $ne: role._id },
+      isArchived: { $ne: true },
       $or: [
         {
           name: {
-            $regex: `^${nextName.replace(
-              /[.*+?^${}()|[\]\\]/g,
-              "\\$&",
-            )}$`,
+            $regex: `^${escapedName}$`,
             $options: "i",
           },
         },
-        {
-          slug: nextSlug,
-        },
+        { slug: nextSlug },
       ],
     }).lean();
 
@@ -361,16 +311,12 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          message:
-            "A role with this name or slug already exists.",
+          message: "A role with this name or slug already exists.",
         },
         { status: 409 },
       );
     }
 
-    /*
-     * Save only fields that were actually provided.
-     */
     const previousName = String(role.name || "");
     const previousSlug = String(role.slug || "");
 
@@ -388,34 +334,19 @@ export async function PATCH(
     await role.save();
 
     /*
-     * Keep existing assigned users synchronized.
-     *
-     * roleId remains the source of truth.
-     * adminRole + permissions are refreshed as snapshots.
+     * Keep users assigned to this role synchronized.
+     * roleId remains unchanged; permissions/adminRole are snapshots.
      */
-    const assignedUsers =
-      await User.find({
-        roleId: role._id,
-      });
+    const assignedUsers = await User.find({ roleId: role._id });
 
-    if (assignedUsers.length > 0) {
-      for (const user of assignedUsers) {
-        (user as any).adminRole =
-          nextSlug;
-
-        (user as any).permissions =
-          role.permissions || {};
-
-        await user.save();
-      }
+    for (const user of assignedUsers) {
+      (user as any).adminRole = nextSlug;
+      (user as any).permissions = role.permissions || {};
+      await user.save();
     }
 
-    const updatedRole =
-      await Role.findById(role._id).lean();
-
-    const actorId = getActorId(
-      session.user as any,
-    );
+    const updatedRole = await Role.findById(role._id).lean();
+    const actorId = getActorId(session.user as any);
 
     await logSuccess(request, {
       actor: actorId,
@@ -427,14 +358,10 @@ export async function PATCH(
         nameAfter: nextName,
         slugBefore: previousSlug,
         slugAfter: nextSlug,
-        descriptionChanged:
-          description !== undefined,
-        permissionsChanged:
-          permissions !== undefined,
+        descriptionChanged: description !== undefined,
+        permissionsChanged: permissions !== undefined,
         permissions:
-          permissions !== undefined
-            ? permissions
-            : role.permissions || {},
+          permissions !== undefined ? permissions : role.permissions || {},
       },
     });
 
@@ -454,11 +381,8 @@ export async function PATCH(
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Role updated successfully.",
-        data: updatedRole
-          ? serializeRole(updatedRole)
-          : serializeRole(role),
+        message: "Role updated successfully.",
+        data: updatedRole ? serializeRole(updatedRole) : serializeRole(role),
       },
       { status: 200 },
     );
@@ -479,10 +403,7 @@ export async function PATCH(
         resource: "role",
         resourceId: failedRoleId || null,
         metadata: {
-          error:
-            error instanceof Error
-              ? error.message
-              : String(error),
+          error: error instanceof Error ? error.message : String(error),
         },
       });
     } catch (auditError) {
@@ -496,8 +417,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          message:
-            "A role with this name or slug already exists.",
+          message: "A role with this name or slug already exists.",
         },
         { status: 409 },
       );
@@ -507,9 +427,7 @@ export async function PATCH(
       {
         success: false,
         message:
-          error instanceof Error
-            ? error.message
-            : "Failed to update role.",
+          error instanceof Error ? error.message : "Failed to update role.",
       },
       { status: 500 },
     );
@@ -518,7 +436,7 @@ export async function PATCH(
 
 /* ============================================================
    DELETE
-   Delete an existing custom role
+   Archive legacy Manager/Staff; safely delete eligible custom roles
 ============================================================ */
 
 export async function DELETE(
@@ -526,15 +444,11 @@ export async function DELETE(
   context: RouteContext,
 ) {
   try {
-    const session =
-      await getServerSession(authOptions);
+    const session = await getServerSession(authOptions);
 
     if (!session?.user) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
+        { success: false, message: "Unauthorized." },
         { status: 401 },
       );
     }
@@ -543,8 +457,7 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Only the owner can delete roles.",
+          message: "Only the owner can archive or delete roles.",
         },
         { status: 403 },
       );
@@ -554,62 +467,109 @@ export async function DELETE(
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid role ID.",
-        },
+        { success: false, message: "Invalid role ID." },
         { status: 400 },
       );
     }
 
     await connectDB();
 
-    const role =
-      await Role.findById(id);
+    const role = (await Role.findById(id)) as any;
 
     if (!role) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Role not found.",
-        },
+        { success: false, message: "Role not found." },
         { status: 404 },
       );
     }
 
     /*
-     * Never delete system/protected roles.
+     * Never archive or delete Owner/Super Admin roles.
      */
-    if (role.isSystem || isProtectedRole(role)) {
+    if (isProtectedRole(role)) {
       return NextResponse.json(
         {
           success: false,
+          message: "Owner and Super Admin roles are protected.",
+        },
+        { status: 403 },
+      );
+    }
+
+    const actorId = getActorId(session.user as any);
+
+    /*
+     * Legacy Manager/Staff roles are archived, not deleted.
+     * This preserves role IDs used by users and invitations.
+     * Archive is allowed even if these legacy roles are marked isSystem.
+     */
+    if (isLegacyManagerOrStaff(role)) {
+      if (role.isArchived === true) {
+        return NextResponse.json(
+          {
+            success: true,
+            message: "This legacy role is already archived.",
+            data: serializeRole(role),
+          },
+          { status: 200 },
+        );
+      }
+
+      role.isArchived = true;
+      role.archivedAt = new Date();
+      await role.save();
+
+      await logSuccess(request, {
+        actor: actorId,
+        action: "role_archived",
+        resource: "role",
+        resourceId: String(role._id),
+        metadata: {
+          name: role.name,
+          slug: role.slug,
+          preservedUserReferences: true,
+          preservedInvitationReferences: true,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          success: true,
           message:
-            "System and protected roles cannot be deleted.",
+            `${role.name} role archived successfully. Existing user and invitation references have been preserved.`,
+          data: serializeRole(role),
+        },
+        { status: 200 },
+      );
+    }
+
+    /*
+     * Other system roles cannot be deleted.
+     */
+    if (role.isSystem) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "System roles cannot be deleted.",
         },
         { status: 403 },
       );
     }
 
     /*
-     * Do not delete a role that is currently
-     * assigned to real users.
+     * Do not delete a role assigned to users.
      */
-    const assignedUserCount =
-      await User.countDocuments({
-        roleId: role._id,
-      });
+    const assignedUserCount = await User.countDocuments({
+      roleId: role._id,
+    });
 
     if (assignedUserCount > 0) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            `This role is assigned to ${assignedUserCount} user${
-              assignedUserCount === 1
-                ? ""
-                : "s"
-            }. Reassign those users before deleting the role.`,
+          message: `This role is assigned to ${assignedUserCount} user${
+            assignedUserCount === 1 ? "" : "s"
+          }. Reassign those users before deleting the role.`,
         },
         { status: 409 },
       );
@@ -618,39 +578,24 @@ export async function DELETE(
     /*
      * Do not orphan pending/sent invitations.
      */
-    const pendingInvitationCount =
-      await TeamInvitation.countDocuments({
-        roleId: role._id,
-        status: {
-          $in: [
-            "pending",
-            "sent",
-          ],
-        },
-      });
+    const pendingInvitationCount = await TeamInvitation.countDocuments({
+      roleId: role._id,
+      status: { $in: ["pending", "sent"] },
+    });
 
     if (pendingInvitationCount > 0) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            `This role is attached to ${pendingInvitationCount} active invitation${
-              pendingInvitationCount === 1
-                ? ""
-                : "s"
-            }. Cancel or complete those invitations before deleting the role.`,
+          message: `This role is attached to ${pendingInvitationCount} active invitation${
+            pendingInvitationCount === 1 ? "" : "s"
+          }. Cancel or complete those invitations before deleting the role.`,
         },
         { status: 409 },
       );
     }
 
-    const actorId = getActorId(
-      session.user as any,
-    );
-
-    await Role.findByIdAndDelete(
-      role._id,
-    );
+    await Role.findByIdAndDelete(role._id);
 
     await logSuccess(request, {
       actor: actorId,
@@ -669,8 +614,7 @@ export async function DELETE(
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Role deleted successfully.",
+        message: "Role deleted successfully.",
         data: {
           id: String(role._id),
           name: role.name,
@@ -679,7 +623,7 @@ export async function DELETE(
       },
       { status: 200 },
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error(
       "DELETE /api/admin/roles-permissions/roles/[id] error:",
       error,
@@ -696,10 +640,7 @@ export async function DELETE(
         resource: "role",
         resourceId: failedRoleId || null,
         metadata: {
-          error:
-            error instanceof Error
-              ? error.message
-              : String(error),
+          error: error instanceof Error ? error.message : String(error),
         },
       });
     } catch (auditError) {
@@ -709,13 +650,21 @@ export async function DELETE(
       );
     }
 
+    if (error?.code === 11000) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "A role with this name or slug already exists.",
+        },
+        { status: 409 },
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
         message:
-          error instanceof Error
-            ? error.message
-            : "Failed to delete role.",
+          error instanceof Error ? error.message : "Failed to delete role.",
       },
       { status: 500 },
     );

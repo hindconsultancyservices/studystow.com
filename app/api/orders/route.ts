@@ -1,85 +1,61 @@
+
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import mongoose from "mongoose";
 import { z } from "zod";
 
+import { authOptions } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
+import { getStoreSettings } from "@/lib/store-settings";
+
 import Order from "@/models/Order";
 import Book from "@/models/Book";
 import Coupon from "@/models/Coupon";
 
+export const dynamic = "force-dynamic";
+
 const orderItemSchema = z.object({
   book: z.string().min(1, "Book ID is required"),
-  title: z.string().min(1, "Book title is required"),
-  slug: z.string().min(1, "Book slug is required"),
+  title: z.string().optional(),
+  slug: z.string().optional(),
   quantity: z.number().int().min(1),
-  price: z.number().min(0),
+  price: z.number().min(0).optional(),
   image: z.string().optional().default(""),
 });
 
 const addressSchema = z.object({
-  fullName: z.string().min(2, "Full name is required"),
-  phone: z.string().min(7, "Valid phone number is required"),
-  addressLine1: z.string().min(3, "Address is required"),
+  fullName: z.string().trim().min(2),
+  phone: z.string().trim().min(7),
+  addressLine1: z.string().trim().min(3),
   addressLine2: z.string().optional().default(""),
-  city: z.string().min(2, "City is required"),
-  state: z.string().min(2, "State is required"),
-  postalCode: z.string().min(3, "Postal code is required"),
+  city: z.string().trim().min(2),
+  state: z.string().trim().min(2),
+  postalCode: z.string().trim().min(3),
   country: z.string().optional().default("India"),
 });
 
 const orderSchema = z.object({
-  customer: z.string().min(1, "Customer ID is required"),
-
-  items: z
-    .array(orderItemSchema)
-    .min(1, "At least one item is required"),
-
+  customer: z.string().min(1),
+  items: z.array(orderItemSchema).min(1),
   shippingAddress: addressSchema,
-
   billingAddress: addressSchema.optional(),
 
-  subtotal: z.number().min(0),
-  shipping: z.number().min(0).default(0),
-  discount: z.number().min(0).default(0),
-  tax: z.number().min(0),
-  total: z.number().min(0),
+  // Accepted for compatibility with the existing checkout UI.
+  // These amounts are NOT trusted; the server recalculates them.
+  subtotal: z.number().min(0).optional(),
+  shipping: z.number().min(0).optional(),
+  discount: z.number().min(0).optional(),
+  tax: z.number().min(0).optional(),
+  total: z.number().min(0).optional(),
 
-  couponCode: z
-    .string()
-    .trim()
-    .max(50)
-    .optional()
-    .default(""),
-
-  paymentMethod: z
-    .enum(["cod", "razorpay"])
-    .default("cod"),
-
-  paymentStatus: z
-    .enum([
-      "pending",
-      "paid",
-      "failed",
-      "refunded",
-    ])
-    .default("pending"),
-
-  orderStatus: z
-    .enum([
-      "pending",
-      "confirmed",
-      "processing",
-      "shipped",
-      "delivered",
-      "cancelled",
-    ])
-    .default("pending"),
-
-  notes: z
-    .string()
-    .max(1000)
-    .optional()
-    .default(""),
+  couponCode: z.string().trim().max(50).optional().default(""),
+  paymentMethod: z.enum(["cod", "razorpay"]).default("cod"),
+  notes: z.string().max(1000).optional().default(""),
 });
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
 
 function mapAddress(address: z.infer<typeof addressSchema>) {
   return {
@@ -94,15 +70,39 @@ function mapAddress(address: z.infer<typeof addressSchema>) {
   };
 }
 
-// ============================================================
-// GET /api/orders
-// ============================================================
+function jsonError(message: string, status: number) {
+  return NextResponse.json(
+    { success: false, message },
+    { status }
+  );
+}
 
+/**
+ * GET /api/orders
+ *
+ * Customer access is restricted to the authenticated customer's
+ * own orders. Admin order management uses /api/admin/orders.
+ */
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      return jsonError("Please login to view your orders.", 401);
+    }
+
     await connectDB();
 
     const { searchParams } = new URL(request.url);
+    const requestedCustomer = searchParams.get("customer")?.trim();
+
+    if (
+      requestedCustomer &&
+      requestedCustomer.toLowerCase() !== userId.toLowerCase()
+    ) {
+      return jsonError("You can only view your own orders.", 403);
+    }
 
     const page = Math.max(
       Number(searchParams.get("page") || 1),
@@ -110,56 +110,44 @@ export async function GET(request: NextRequest) {
     );
 
     const limit = Math.min(
-      Math.max(
-        Number(searchParams.get("limit") || 20),
-        1
-      ),
+      Math.max(Number(searchParams.get("limit") || 20), 1),
       100
     );
 
-    const search =
-      searchParams.get("search")?.trim() || "";
-
-    const customer =
-      searchParams.get("customer")?.trim() || "";
-
-    const status =
-      searchParams.get("status")?.trim() || "";
-
+    const search = searchParams.get("search")?.trim() || "";
+    const status = searchParams.get("status")?.trim() || "";
     const paymentStatus =
       searchParams.get("paymentStatus")?.trim() || "";
 
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = {
+      customer: userId,
+    };
 
-    if (customer) {
-      filter.customer = customer;
-    }
-
-    if (status) {
-      filter.orderStatus = status;
-    }
-
-    if (paymentStatus) {
-      filter.paymentStatus = paymentStatus;
-    }
+    if (status) filter.orderStatus = status;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
 
     if (search) {
+      const escapedSearch = search.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
       filter.$or = [
         {
           orderNumber: {
-            $regex: search,
+            $regex: escapedSearch,
             $options: "i",
           },
         },
         {
           "shippingAddress.name": {
-            $regex: search,
+            $regex: escapedSearch,
             $options: "i",
           },
         },
         {
           "shippingAddress.phone": {
-            $regex: search,
+            $regex: escapedSearch,
             $options: "i",
           },
         },
@@ -170,10 +158,7 @@ export async function GET(request: NextRequest) {
 
     const [orders, total] = await Promise.all([
       Order.find(filter)
-        .populate(
-          "customer",
-          "name email phone"
-        )
+        .populate("customer", "name email phone")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -189,50 +174,49 @@ export async function GET(request: NextRequest) {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.max(Math.ceil(total / limit), 1),
       },
     });
   } catch (error) {
-    console.error(
-      "GET /api/orders error:",
-      error
-    );
-
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to fetch orders",
-      },
-      { status: 500 }
-    );
+    console.error("GET /api/orders error:", error);
+    return jsonError("Failed to fetch orders.", 500);
   }
 }
 
-// ============================================================
-// POST /api/orders
-// ============================================================
-
+/**
+ * POST /api/orders
+ *
+ * Prices, shipping, discounts and tax are calculated server-side.
+ */
 export async function POST(request: NextRequest) {
+  const reservedStock: Array<{
+    bookId: string;
+    quantity: number;
+  }> = [];
+
+  let orderCreated = false;
+
   try {
-    await connectDB();
+    const session = await getServerSession(authOptions);
+    const userId = session?.user?.id;
+
+    // The current checkout/cart/address implementation is account-based.
+    if (!userId) {
+      return jsonError(
+        "Please login before placing an order.",
+        401
+      );
+    }
 
     const body = await request.json();
-
-    const validation =
-      orderSchema.safeParse(body);
+    const validation = orderSchema.safeParse(body);
 
     if (!validation.success) {
-      console.error(
-        "Order validation error:",
-        validation.error.flatten()
-      );
-
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid order data",
-          errors:
-            validation.error.flatten(),
+          message: "Invalid order data.",
+          errors: validation.error.flatten(),
         },
         { status: 400 }
       );
@@ -240,422 +224,369 @@ export async function POST(request: NextRequest) {
 
     const data = validation.data;
 
-    // --------------------------------------------------------
-    // GET BOOKS FROM DATABASE
-    // --------------------------------------------------------
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return jsonError("Invalid customer account.", 400);
+    }
 
-    const bookIds = data.items.map(
-      (item) => item.book
-    );
+    if (
+      !mongoose.Types.ObjectId.isValid(data.customer) ||
+      data.customer.toLowerCase() !== userId.toLowerCase()
+    ) {
+      return jsonError(
+        "Order customer must match your authenticated account.",
+        403
+      );
+    }
+
+    await connectDB();
+
+    const settings = await getStoreSettings();
+
+    if (
+      data.paymentMethod === "cod" &&
+      !settings.codEnabled
+    ) {
+      return jsonError(
+        "Cash on Delivery is currently disabled.",
+        400
+      );
+    }
+
+    if (
+      data.paymentMethod === "razorpay" &&
+      (!settings.razorpayEnabled || !settings.razorpayConfigured)
+    ) {
+      return jsonError(
+        "Online payment is currently unavailable.",
+        400
+      );
+    }
+
+    // Combine repeated cart lines for the same book.
+    const quantities = new Map<string, number>();
+
+    for (const item of data.items) {
+      if (!mongoose.Types.ObjectId.isValid(item.book)) {
+        return jsonError("Invalid book ID.", 400);
+      }
+
+      quantities.set(
+        item.book,
+        (quantities.get(item.book) || 0) + item.quantity
+      );
+    }
+
+    const bookIds = [...quantities.keys()];
 
     const books = await Book.find({
       _id: { $in: bookIds },
     }).lean();
 
     if (books.length !== bookIds.length) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "One or more books were not found.",
-        },
-        { status: 400 }
+      return jsonError(
+        "One or more books were not found.",
+        400
       );
     }
 
     const bookMap = new Map(
-      books.map((book) => [
-        String(book._id),
-        book,
-      ])
+      books.map((book) => [String(book._id), book])
     );
-
-    // --------------------------------------------------------
-    // VERIFY PRICE + STOCK
-    // --------------------------------------------------------
 
     let calculatedSubtotal = 0;
 
-    const verifiedItems = data.items.map(
-      (item) => {
-        const book = bookMap.get(item.book);
+    const verifiedItems = bookIds.map((bookId) => {
+      const book = bookMap.get(bookId);
 
-        if (!book) {
-          throw new Error(
-            `Book not found: ${item.book}`
-          );
-        }
-
-        const quantity = item.quantity;
-        const price = Number(book.price || 0);
-        const stock = Number(book.stock || 0);
-
-        if (stock < quantity) {
-          throw new Error(
-            `"${book.title}" has only ${stock} item(s) in stock.`
-          );
-        }
-
-        calculatedSubtotal +=
-          price * quantity;
-
-        return {
-          book: book._id,
-          title: book.title,
-          quantity,
-          price,
-          image: book.image || "",
-        };
+      if (!book) {
+        throw new Error(`Book not found: ${bookId}`);
       }
-    );
 
-    calculatedSubtotal =
-      Math.round(
-        calculatedSubtotal * 100
-      ) / 100;
+      const quantity = quantities.get(bookId) || 0;
+      const price = Number(book.price || 0);
+      const stock = Number(book.stock || 0);
 
-    // --------------------------------------------------------
-    // SHIPPING + TAX
-    // --------------------------------------------------------
+      if (quantity <= 0 || stock < quantity) {
+        throw new Error(
+          `"${book.title}" does not have enough stock. Available: ${stock}.`
+        );
+      }
 
-    const shipping = Number(data.shipping || 0);
-    const tax = Number(data.tax || 0);
+      calculatedSubtotal += price * quantity;
 
-    // --------------------------------------------------------
-    // COUPON
-    // --------------------------------------------------------
+      return {
+        book: book._id,
+        title: book.title,
+        quantity,
+        price,
+        image: book.image || "",
+      };
+    });
 
+    calculatedSubtotal = roundMoney(calculatedSubtotal);
+
+    // Validate and calculate the coupon on the server.
     let calculatedDiscount = 0;
-    let coupon = null;
+    let coupon: any = null;
 
-    if (data.couponCode) {
-      coupon = await Coupon.findOne({
-        code: data.couponCode
-          .trim()
-          .toUpperCase(),
-      });
+    const couponCode = data.couponCode.trim().toUpperCase();
 
-      if (!coupon) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Invalid coupon code.",
-          },
-          { status: 400 }
+    if (couponCode) {
+      coupon = await Coupon.findOne({ code: couponCode });
+
+      if (!coupon || !coupon.active) {
+        return jsonError(
+          "This coupon is invalid or inactive.",
+          400
         );
       }
 
       const now = new Date();
 
-      if (!coupon.active) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "This coupon is inactive.",
-          },
-          { status: 400 }
-        );
-      }
-
       if (
-        now < new Date(coupon.startDate)
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "This coupon is not active yet.",
-          },
-          { status: 400 }
-        );
-      }
-
-      if (
+        now < new Date(coupon.startDate) ||
         now > new Date(coupon.endDate)
       ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "This coupon has expired.",
-          },
-          { status: 400 }
+        return jsonError(
+          "This coupon is outside its valid date range.",
+          400
         );
       }
 
       if (
-        coupon.usageLimit !==
-          undefined &&
-        coupon.usageCount >=
-          coupon.usageLimit
+        coupon.usageLimit !== undefined &&
+        coupon.usageCount >= coupon.usageLimit
       ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Coupon usage limit has been reached.",
-          },
-          { status: 400 }
+        return jsonError(
+          "Coupon usage limit has been reached.",
+          400
         );
       }
 
-      if (
-        calculatedSubtotal <
-        coupon.minOrderAmount
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Minimum order amount is ₹${coupon.minOrderAmount}`,
-          },
-          { status: 400 }
+      if (calculatedSubtotal < Number(coupon.minOrderAmount || 0)) {
+        return jsonError(
+          `Minimum order amount is ₹${coupon.minOrderAmount}.`,
+          400
         );
       }
 
       if (coupon.type === "percentage") {
         calculatedDiscount =
-          (calculatedSubtotal *
-            coupon.value) /
-          100;
+          (calculatedSubtotal * Number(coupon.value)) / 100;
 
-        if (
-          coupon.maxDiscountAmount !==
-            undefined &&
-          calculatedDiscount >
-            coupon.maxDiscountAmount
-        ) {
-          calculatedDiscount =
-            coupon.maxDiscountAmount;
+        if (coupon.maxDiscountAmount !== undefined) {
+          calculatedDiscount = Math.min(
+            calculatedDiscount,
+            Number(coupon.maxDiscountAmount)
+          );
         }
       } else {
-        calculatedDiscount =
-          coupon.value;
+        calculatedDiscount = Number(coupon.value);
       }
 
-      calculatedDiscount = Math.min(
-        calculatedDiscount,
-        calculatedSubtotal
-      );
-
-      calculatedDiscount =
-        Math.round(
-          calculatedDiscount * 100
-        ) / 100;
-    }
-
-    // --------------------------------------------------------
-    // FINAL TOTAL
-    // --------------------------------------------------------
-
-    const calculatedTotal =
-      calculatedSubtotal +
-      shipping +
-      tax -
-      calculatedDiscount;
-
-    if (calculatedTotal < 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid order total.",
-        },
-        { status: 400 }
+      calculatedDiscount = roundMoney(
+        Math.min(
+          Math.max(calculatedDiscount, 0),
+          calculatedSubtotal
+        )
       );
     }
 
-    const finalTotal =
-      Math.round(
-        calculatedTotal * 100
-      ) / 100;
+    const discountedSubtotal = Math.max(
+      calculatedSubtotal - calculatedDiscount,
+      0
+    );
 
-    // --------------------------------------------------------
-    // ORDER NUMBER
-    // --------------------------------------------------------
+    // Shipping is determined by persisted settings, not request data.
+    let shipping = 0;
 
+    if (settings.shippingEnabled) {
+      const qualifiesForFreeShipping =
+        settings.freeShippingEnabled &&
+        discountedSubtotal >= settings.freeShippingAmount;
+
+      shipping = qualifiesForFreeShipping
+        ? 0
+        : Math.max(settings.shippingCharge, 0);
+    }
+
+    // The configured default GST rate is applied to the discounted
+    // subtotal. Product-specific GST rates are not modelled here.
+    const tax = settings.gstEnabled
+      ? roundMoney(
+          discountedSubtotal *
+            (Math.max(settings.defaultGstRate, 0) / 100)
+        )
+      : 0;
+
+    const finalTotal = roundMoney(
+      discountedSubtotal + shipping + tax
+    );
+
+    if (!Number.isFinite(finalTotal) || finalTotal < 0) {
+      return jsonError("Invalid order total.", 400);
+    }
+
+    // Generate a unique human-readable order number.
     let orderNumber = "";
     let uniqueOrderNumber = false;
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const random = Math.floor(
-        100000 +
-          Math.random() * 900000
+        100000 + Math.random() * 900000
       );
 
       orderNumber = `ST-${Date.now()
         .toString()
         .slice(-6)}-${random}`;
 
-      const exists =
-        await Order.exists({
-          orderNumber,
-        });
-
-      if (!exists) {
+      if (!(await Order.exists({ orderNumber }))) {
         uniqueOrderNumber = true;
         break;
       }
     }
 
     if (!uniqueOrderNumber) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Unable to generate order number.",
-        },
-        { status: 500 }
+      return jsonError(
+        "Unable to generate order number.",
+        500
       );
     }
 
-    // --------------------------------------------------------
-    // MAP ADDRESS TO ORDER SCHEMA
-    // --------------------------------------------------------
+    // Reserve inventory atomically to avoid overselling.
+    for (const item of verifiedItems) {
+      const result = await Book.updateOne(
+        {
+          _id: item.book,
+          stock: { $gte: item.quantity },
+        },
+        {
+          $inc: { stock: -item.quantity },
+        }
+      );
 
-    const shippingAddress =
-      mapAddress(data.shippingAddress);
+      if (result.modifiedCount !== 1) {
+        await Promise.all(
+          reservedStock.map((reserved) =>
+            Book.updateOne(
+              { _id: reserved.bookId },
+              { $inc: { stock: reserved.quantity } }
+            )
+          )
+        );
 
-    const billingAddress =
-      data.billingAddress
-        ? mapAddress(data.billingAddress)
-        : shippingAddress;
+        reservedStock.length = 0;
 
-    // --------------------------------------------------------
-    // CREATE ORDER
-    // --------------------------------------------------------
+        return jsonError(
+          "Stock changed while placing your order. Refresh the cart and try again.",
+          409
+        );
+      }
+
+      reservedStock.push({
+        bookId: String(item.book),
+        quantity: item.quantity,
+      });
+    }
+
+    const shippingAddress = mapAddress(data.shippingAddress);
+
+    const billingAddress = data.billingAddress
+      ? mapAddress(data.billingAddress)
+      : shippingAddress;
 
     const order = await Order.create({
       orderNumber,
-
-      customer: data.customer,
-
+      customer: userId,
       items: verifiedItems,
-
       shippingAddress,
-
       billingAddress,
 
       subtotal: calculatedSubtotal,
-
       shipping,
-
       discount: calculatedDiscount,
-
       tax,
-
       total: finalTotal,
 
-      paymentMethod:
-        data.paymentMethod,
+      paymentMethod: data.paymentMethod,
 
-      paymentStatus:
-        data.paymentStatus,
-
-      orderStatus:
-        data.orderStatus,
+      // Never accept payment/order status supplied by the browser.
+      paymentStatus: "pending",
+      orderStatus: "pending",
 
       notes: data.notes || "",
     });
 
-    // --------------------------------------------------------
-    // REDUCE STOCK
-    // --------------------------------------------------------
+    orderCreated = true;
 
-    for (const item of verifiedItems) {
-      const result =
-        await Book.updateOne(
+    // For COD, count coupon use at order creation. Online payment
+    // usage should be finalized when payment is verified.
+    if (coupon && data.paymentMethod === "cod") {
+      try {
+        await Coupon.updateOne(
           {
-            _id: item.book,
-            stock: {
-              $gte: item.quantity,
-            },
+            _id: coupon._id,
+            ...(coupon.usageLimit !== undefined
+              ? { usageCount: { $lt: coupon.usageLimit } }
+              : {}),
           },
           {
-            $inc: {
-              stock: -item.quantity,
-            },
+            $inc: { usageCount: 1 },
           }
         );
-
-      if (result.modifiedCount === 0) {
+      } catch (couponError) {
         console.error(
-          `Stock update failed for book ${item.book}`
+          "Coupon usage update failed after order creation:",
+          couponError
         );
       }
     }
 
-    // --------------------------------------------------------
-    // COUPON USAGE
-    // --------------------------------------------------------
-
-    if (
-      coupon &&
-      data.paymentMethod === "cod"
-    ) {
-      await Coupon.updateOne(
-        {
-          _id: coupon._id,
-
-          ...(coupon.usageLimit !==
-            undefined && {
-            usageCount: {
-              $lt: coupon.usageLimit,
-            },
-          }),
-        },
-        {
-          $inc: {
-            usageCount: 1,
-          },
-        }
-      );
-    }
-
-    // --------------------------------------------------------
-    // SUCCESS
-    // --------------------------------------------------------
-
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Order created successfully.",
-
+        message: "Order created successfully.",
         data: {
           ...order.toObject(),
-
-          subtotal:
-            calculatedSubtotal,
-
-          discount:
-            calculatedDiscount,
-
-          total:
-            finalTotal,
-
-          couponCode:
-            coupon?.code || "",
+          subtotal: calculatedSubtotal,
+          shipping,
+          discount: calculatedDiscount,
+          tax,
+          total: finalTotal,
+          couponCode: coupon?.code || "",
         },
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error(
-      "POST /api/orders error:",
-      error
-    );
+    // If creation failed after reserving stock, release the reservation.
+    if (!orderCreated && reservedStock.length > 0) {
+      try {
+        await connectDB();
+
+        await Promise.all(
+          reservedStock.map((reserved) =>
+            Book.updateOne(
+              { _id: reserved.bookId },
+              { $inc: { stock: reserved.quantity } }
+            )
+          )
+        );
+      } catch (restoreError) {
+        console.error(
+          "Failed to restore reserved stock:",
+          restoreError
+        );
+      }
+    }
+
+    console.error("POST /api/orders error:", error);
 
     const message =
       error instanceof Error
         ? error.message
         : "Failed to create order.";
 
-    return NextResponse.json(
-      {
-        success: false,
-        message,
-      },
-      { status: 500 }
-    );
+    return jsonError(message, 500);
   }
 }

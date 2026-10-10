@@ -159,7 +159,6 @@ export default function AdminReviewsPage() {
   const [rating, setRating] = useState<"all" | "1" | "2" | "3" | "4" | "5">(
     "all"
   );
-
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalReviews, setTotalReviews] = useState(0);
@@ -167,7 +166,7 @@ export default function AdminReviewsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
+  
   const [actionId, setActionId] = useState<string | null>(null);
 
   const limit = 10;
@@ -285,40 +284,47 @@ export default function AdminReviewsPage() {
     }
   }
 
-  async function deleteReview(reviewId: string) {
-    const confirmed = window.confirm(
-      "Are you sure you want to permanently delete this review?"
+  
+async function deleteReview(reviewId: string) {
+  const confirmed = window.confirm(
+    "Are you sure you want to permanently delete this review?"
+  );
+
+  if (!confirmed) return;
+
+  try {
+    setActionId(reviewId);
+    setError("");
+
+    // Existing app/api/admin/reviews/[id]/route.ts ko call karo.
+    const response = await fetch(
+      `/api/admin/reviews/${encodeURIComponent(reviewId)}`,
+      {
+        method: "DELETE",
+        cache: "no-store",
+      }
     );
 
-    if (!confirmed) {
-      return;
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.message || "Failed to delete review"
+      );
     }
 
-    try {
-      setActionId(reviewId);
-      setError("");
-
-      const response = await fetch(`/api/admin/reviews/${reviewId}`, {
-        method: "DELETE",
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to delete review");
-      }
-
-      if (reviews.length === 1 && page > 1) {
-        setPage((current) => current - 1);
-      } else {
-        await fetchReviews(true);
-      }
-    } catch (error) {
-      setError(getErrorMessage(error));
-    } finally {
-      setActionId(null);
+    if (reviews.length === 1 && page > 1) {
+      setPage((current) => current - 1);
+    } else {
+      await fetchReviews(true);
     }
+  } catch (error) {
+    setError(getErrorMessage(error));
+  } finally {
+    setActionId(null);
   }
+}
+
 
   const ratingRows = useMemo(() => {
     return [5, 4, 3, 2, 1] as const;

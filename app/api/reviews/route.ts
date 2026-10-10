@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import Review from "@/models/Review";
+import "@/models/Book";
 
 type SessionUser = {
   id?: string;

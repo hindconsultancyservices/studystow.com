@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import Review from "@/models/Review";
 import Book from "@/models/Book";
+import "@/models/Book";
 
 type RouteContext = {
   params: Promise<{

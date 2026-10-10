@@ -1,11 +1,16 @@
-import { requireAdminPermission } from "@/lib/admin-authorization";
+
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import mongoose from "mongoose";
 
-import { authOptions } from "@/lib/auth";
+import { requireAdminPermission } from "@/lib/admin-authorization";
 import connectDB from "@/lib/db";
 import Review from "@/models/Review";
+
+// Register models used by populate().
+import "@/models/Book";
+import "@/models/User";
+
+export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{
@@ -13,21 +18,73 @@ type RouteContext = {
   }>;
 };
 
-function isAdmin(
-  session: Awaited<
-    ReturnType<typeof getServerSession<typeof authOptions>>
-  >
+function errorResponse(message: string, status = 400) {
+  return NextResponse.json(
+    {
+      success: false,
+      message,
+    },
+    { status }
+  );
+}
+
+async function getReviewId(context: RouteContext) {
+  const { id } = await context.params;
+  const reviewId = String(id || "").trim();
+
+  if (!mongoose.Types.ObjectId.isValid(reviewId)) {
+    return null;
+  }
+
+  return reviewId;
+}
+
+/**
+ * GET /api/admin/reviews/[id]
+ * Fetch a single review.
+ */
+export async function GET(
+  _request: NextRequest,
+  context: RouteContext
 ) {
-  return session?.user?.role === "admin";
+  try {
+    const auth = await requireAdminPermission("reviews", "view");
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const id = await getReviewId(context);
+
+    if (!id) {
+      return errorResponse("Invalid review ID.", 400);
+    }
+
+    await connectDB();
+
+    const review = await Review.findById(id)
+      .populate("book", "title slug image")
+      .populate("user", "name email")
+      .lean();
+
+    if (!review) {
+      return errorResponse("Review not found.", 404);
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: review,
+    });
+  } catch (error) {
+    console.error("GET /api/admin/reviews/[id] error:", error);
+
+    return errorResponse("Failed to fetch review.", 500);
+  }
 }
 
 /**
  * PATCH /api/admin/reviews/[id]
- *
- * Admin:
- * - approve review
- * - reject review
- * - move review back to pending
+ * Approve, reject, or reset a review to pending.
  */
 export async function PATCH(
   request: NextRequest,
@@ -35,24 +92,18 @@ export async function PATCH(
 ) {
   try {
     const auth = await requireAdminPermission("reviews", "edit");
-    if (!auth.ok) return auth.response;
 
-    const { id } = await context.params;
+    if (!auth.ok) {
+      return auth.response;
+    }
 
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid review ID.",
-        },
-        {
-          status: 400,
-        }
-      );
+    const id = await getReviewId(context);
+
+    if (!id) {
+      return errorResponse("Invalid review ID.", 400);
     }
 
     const body = await request.json().catch(() => null);
-
     const status = body?.status;
 
     if (
@@ -60,15 +111,9 @@ export async function PATCH(
       status !== "approved" &&
       status !== "rejected"
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Invalid status. Use pending, approved or rejected.",
-        },
-        {
-          status: 400,
-        }
+      return errorResponse(
+        "Invalid status. Use pending, approved or rejected.",
+        400
       );
     }
 
@@ -77,15 +122,7 @@ export async function PATCH(
     const review = await Review.findById(id);
 
     if (!review) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Review not found.",
-        },
-        {
-          status: 404,
-        }
-      );
+      return errorResponse("Review not found.", 404);
     }
 
     review.status = status;
@@ -97,108 +134,78 @@ export async function PATCH(
       .populate("user", "name email")
       .lean();
 
-    return NextResponse.json(
-      {
-        success: true,
-        message:
-          status === "approved"
-            ? "Review approved successfully."
-            : status === "rejected"
+    return NextResponse.json({
+      success: true,
+      message:
+        status === "approved"
+          ? "Review approved successfully."
+          : status === "rejected"
             ? "Review rejected successfully."
             : "Review moved to pending.",
-        data: updatedReview,
-      },
-      {
-        status: 200,
-      }
-    );
+      data: updatedReview,
+    });
   } catch (error) {
-    console.error(
-      "PATCH /api/admin/reviews/[id] error:",
-      error
-    );
+    console.error("PATCH /api/admin/reviews/[id] error:", error);
 
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update review.",
-      },
-      {
-        status: 500,
-      }
-    );
+    return errorResponse("Failed to update review.", 500);
   }
 }
 
 /**
- * GET /api/admin/reviews/[id]
- *
- * Admin only.
+ * DELETE /api/admin/reviews/[id]
+ * Permanently delete a review.
  */
-export async function GET(
-  request: NextRequest,
+export async function DELETE(
+  _request: NextRequest,
   context: RouteContext
 ) {
   try {
-    const auth = await requireAdminPermission("reviews", "view");
-    if (!auth.ok) return auth.response;
+    const auth = await requireAdminPermission("reviews", "delete");
 
-    const { id } = await context.params;
+    if (!auth.ok) {
+      return auth.response;
+    }
 
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid review ID.",
-        },
-        {
-          status: 400,
-        }
-      );
+    const id = await getReviewId(context);
+
+    if (!id) {
+      return errorResponse("Invalid review ID.", 400);
     }
 
     await connectDB();
 
-    const review = await Review.findById(id)
-      .populate("book", "title slug image")
-      .populate("user", "name email")
+    const deletedReview = await Review.findByIdAndDelete(id)
+      .select("_id")
       .lean();
 
-    if (!review) {
-      return NextResponse.json(
+    if (!deletedReview) {
+      console.warn(
+        "[ADMIN REVIEW DELETE] Review not found:",
         {
-          success: false,
-          message: "Review not found.",
-        },
-        {
-          status: 404,
+          id,
+          database: mongoose.connection.name,
+          collection: Review.collection.name,
         }
+      );
+
+      return errorResponse(
+        "Review not found in the connected database.",
+        404
       );
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        data: review,
-      },
-      {
-        status: 200,
-      }
-    );
-  } catch (error) {
-    console.error(
-      "GET /api/admin/reviews/[id] error:",
-      error
-    );
+    console.info("[ADMIN REVIEW DELETE] Successfully deleted:", id);
 
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to fetch review.",
+    return NextResponse.json({
+      success: true,
+      message: "Review deleted successfully.",
+      data: {
+        id: String(deletedReview._id),
       },
-      {
-        status: 500,
-      }
-    );
+    });
+  } catch (error) {
+    console.error("DELETE /api/admin/reviews/[id] error:", error);
+
+    return errorResponse("Failed to delete review.", 500);
   }
 }
